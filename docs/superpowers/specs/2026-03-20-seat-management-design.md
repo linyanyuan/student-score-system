@@ -162,11 +162,12 @@ Response 403:
 }
 ```
 
+**404 处理说明**:
+- 如果班级不存在座位表，返回 404
+- 前端收到 404 后，应初始化空座位表（默认 5 列，每列 6 行）
+- 用户可以调整布局后开始分配学生
+
 **注意**: 所有错误响应统一使用 `detail` 字段，遵循 FastAPI 标准。
-{
-  "detail": "无权限访问该班级座位表"
-}
-```
 
 #### 4.2.2 保存/更新座位表
 ```
@@ -377,6 +378,20 @@ const renderSeats = () => {
 **减少列数**:
 - 删除最右侧的列
 - 该列的学生返回未分配列表
+- 实现逻辑：
+  ```jsx
+  // 遍历 seatData，找出被删除列的所有学生
+  const removedStudents = [];
+  Object.keys(seatData).forEach(key => {
+    const [col, row] = key.split('-').map(Number);
+    if (col === columns - 1 && seatData[key]?.student_id) {
+      removedStudents.push(seatData[key].student_id);
+      delete seatData[key];
+    }
+  });
+  // 将学生添加回未分配列表
+  setUnassignedStudents([...unassignedStudents, ...removedStudents]);
+  ```
 - 弹出确认: "第5列有3名学生，删除后将返回未分配列表，确认吗？"
 
 **增加某列行数**:
@@ -386,6 +401,16 @@ const renderSeats = () => {
 **减少某列行数**:
 - 删除该列底部的座位
 - 如果有学生，返回未分配列表
+- 实现逻辑：
+  ```jsx
+  // 检查被删除行是否有学生
+  const key = `${colIndex}-${newRowCount}`;
+  if (seatData[key]?.student_id) {
+    const studentId = seatData[key].student_id;
+    setUnassignedStudents([...unassignedStudents, studentId]);
+    delete seatData[key];
+  }
+  ```
 - 弹出确认: "第3列第6排有学生，删除后将返回未分配列表，确认吗？"
 
 #### 5.4.2 边界限制
@@ -540,6 +565,7 @@ const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 2. 加载班级学生列表 (GET /api/students?class_id={id})
    ↓
 3. 加载座位表配置 (GET /api/seats/{class_id})
+   - 如果返回 404，初始化默认布局
    ↓
 4. 计算未分配学生 (学生列表 - 已分配学生)
    ↓
@@ -554,6 +580,66 @@ const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 9. 用户点击保存
    ↓
 10. 提交到后端 (POST /api/seats/{class_id})
+```
+
+### 6.3 拖拽实现细节
+
+**使用 @dnd-kit/core 的关键 API**:
+
+```jsx
+import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core';
+
+// 拖拽源（学生）
+function DraggableStudent({ student }) {
+  const { attributes, listeners, setNodeRef } = useDraggable({
+    id: `student-${student.id}`,
+    data: { type: 'student', student }
+  });
+  return <div ref={setNodeRef} {...listeners} {...attributes}>{student.name}</div>;
+}
+
+// 放置目标（座位格子）
+function DroppableSeat({ position }) {
+  const { setNodeRef } = useDroppable({
+    id: `seat-${position}`,
+    data: { type: 'seat', position }
+  });
+  return <div ref={setNodeRef}>...</div>;
+}
+
+// 处理拖拽结束
+function handleDragEnd(event) {
+  const { active, over } = event;
+  if (!over) return;
+
+  const draggedStudent = active.data.current.student;
+  const targetPosition = over.data.current.position;
+
+  // 场景 1: 从列表拖到座位
+  if (active.data.current.type === 'student' && over.data.current.type === 'seat') {
+    // 如果目标座位有学生，交换
+    const existingStudent = seatData[targetPosition];
+    if (existingStudent) {
+      setUnassignedStudents([...unassignedStudents, existingStudent.student_id]);
+    }
+    setSeatData({ ...seatData, [targetPosition]: { student_id: draggedStudent.id } });
+    setUnassignedStudents(unassignedStudents.filter(s => s.id !== draggedStudent.id));
+  }
+
+  // 场景 2: 座位间交换
+  if (active.data.current.type === 'seat' && over.data.current.type === 'seat') {
+    const sourcePos = active.data.current.position;
+    const targetPos = over.data.current.position;
+    const sourceStudent = seatData[sourcePos];
+    const targetStudent = seatData[targetPos];
+
+    setSeatData({
+      ...seatData,
+      [sourcePos]: targetStudent || null,
+      [targetPos]: sourceStudent
+    });
+  }
+}
 ```
 
 ## 7. 错误处理
