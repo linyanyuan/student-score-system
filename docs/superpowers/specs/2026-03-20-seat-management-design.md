@@ -57,18 +57,28 @@ SeatManage (主页面)
 
 ### 3.1 新增表: seat_arrangements
 
-```sql
-CREATE TABLE seat_arrangements (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    class_id INTEGER NOT NULL,
-    teacher_id INTEGER NOT NULL,
-    layout_config TEXT NOT NULL,
-    seat_data TEXT NOT NULL,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (class_id) REFERENCES classes(id) ON DELETE CASCADE,
-    FOREIGN KEY (teacher_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE(class_id)
-);
+**注意**: 项目使用 SQLite 数据库，使用 SQLAlchemy ORM 定义模型。
+
+```python
+# backend/app/models/seat_arrangement.py
+from sqlalchemy import Integer, String, Text, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
+from datetime import datetime
+
+from app.database import Base
+
+class SeatArrangement(Base):
+    __tablename__ = "seat_arrangements"
+    __table_args__ = (
+        UniqueConstraint("class_id", name="uq_seat_arrangement_class"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    class_id: Mapped[int] = mapped_column(Integer, ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
+    teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    layout_config: Mapped[str] = mapped_column(Text, nullable=False)  # JSON string
+    seat_data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON string
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
 ```
 
 ### 3.2 字段说明
@@ -93,6 +103,11 @@ CREATE TABLE seat_arrangements (
 }
 ```
 
+**验证规则**:
+- `column_rows` 数组长度必须等于 `columns`
+- 每个元素必须 >= 1
+- `podium_position` 只能是: "top", "bottom", "left", "right"
+
 **seat_data**:
 ```json
 {
@@ -109,11 +124,12 @@ CREATE TABLE seat_arrangements (
 
 **字段说明**:
 - `columns`: 总列数
-- `column_rows`: 数组，每列的行数
+- `column_rows`: 数组，每列的行数（长度必须等于 columns）
 - `podium_position`: 讲台位置 (top/bottom/left/right)
-- 座位键格式: `"{列索引}-{行索引}"`
-- `fixed`: 是否固定座位（P2功能）
-- `reason`: 固定原因备注
+- 座位键格式: `"{列索引}-{行索引}"`，索引从 0 开始
+- `fixed`: 是否固定座位（P2功能，初期实现可忽略）
+- `reason`: 固定原因备注（P2功能）
+- 值为 `null` 表示空座位
 
 ## 4. 后端 API 设计
 
@@ -141,6 +157,12 @@ Response 404:
 }
 
 Response 403:
+{
+  "detail": "无权限访问该班级座位表"
+}
+```
+
+**注意**: 所有错误响应统一使用 `detail` 字段，遵循 FastAPI 标准。
 {
   "detail": "无权限访问该班级座位表"
 }
@@ -197,8 +219,18 @@ Response 403:
 
 ### 4.3 权限验证逻辑
 
+**验证方式**: 通过 `teacher_classes` 表验证教师是否任教该班级
+
 ```python
 def check_seat_permission(user, class_id):
+    """
+    检查用户是否有权限管理指定班级的座位表
+
+    规则:
+    - 管理员: 可以管理所有班级
+    - 教师: 只能管理 teacher_classes 表中关联的班级
+    - 其他角色: 无权限
+    """
     if user.role == "admin":
         return True
     if user.role == "teacher":
@@ -209,6 +241,8 @@ def check_seat_permission(user, class_id):
         ).first() is not None
     return False
 ```
+
+**使用方式**: 在所有座位表 API 端点中调用此函数验证权限。
 
 ## 5. 前端设计
 
@@ -276,6 +310,12 @@ def check_seat_permission(user, class_id):
 结果:
 - 张三移动到座位(3,4)
 - 李四移动到座位(1,2)
+- 两个学生位置互换
+
+操作: 拖拽 座位(1,2)的张三 → 空座位(3,4)
+结果:
+- 张三移动到座位(3,4)
+- 座位(1,2)变为空座位
 ```
 
 **场景 3: 从座位拖回列表**
@@ -368,6 +408,8 @@ const exportImage = async () => {
   const canvas = await html2canvas(element, {
     backgroundColor: '#ffffff',
     scale: 2, // 高清
+    useCORS: true, // 处理跨域图片（如果未来添加学生头像）
+    allowTaint: false,
   });
   const link = document.createElement('a');
   link.download = `${className}-座位表.png`;
@@ -375,6 +417,11 @@ const exportImage = async () => {
   link.click();
 };
 ```
+
+**注意**:
+- 如果未来添加学生头像功能，需要确保图片支持 CORS
+- 或者使用代理服务器处理图片
+- 初期实现只有文字，无此问题
 
 **导出内容**:
 - 班级名称
@@ -479,6 +526,11 @@ const [seatData, setSeatData] = useState({});
 const [unassignedStudents, setUnassignedStudents] = useState([]);
 const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 ```
+
+**状态管理方案**: 使用 React useState
+- 对于座位管理这种相对独立的功能，useState 足够
+- 拖拽状态由 @dnd-kit 内部管理
+- 如果未来状态逻辑变复杂，可以考虑 useReducer
 
 ### 6.2 数据流
 
