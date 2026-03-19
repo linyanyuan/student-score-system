@@ -23,11 +23,21 @@ export default function Login() {
     try {
       await login(values.username, values.password)
       hideLoading()
-      message.success('登录成功')
+      message.success('登录成功', 2)
       navigate('/', { replace: true })
     } catch (err) {
       hideLoading()
-      message.error(err.message || '登录失败')
+      // 判断错误类型
+      if (!err.response) {
+        // 网络错误
+        message.error('网络连接失败，请检查网络后重试', 5)
+      } else if (err.response?.status === 401 || err.response?.status === 400) {
+        // 认证错误
+        message.error('账号或密码错误，请重新输入', 5)
+      } else {
+        // 其他错误
+        message.error('登录失败，请稍后重试', 5)
+      }
     } finally {
       setLoading(false)
     }
