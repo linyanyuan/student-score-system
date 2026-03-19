@@ -30,6 +30,12 @@ function DistributionChart({ data }) {
     axis: { y: { labelFormatter: (v) => `${(v * 100).toFixed(0)}%` } },
     label: {
       position: 'top',
+      style: {
+         fill: '#f01010',
+         fontSize:16,
+        fontWeight: 600,
+        dx:-10,
+        dy:-25},
       text: (datum) => {
         const count = datum?.count
         return count !== undefined && count !== null ? `${count}人` : '-'

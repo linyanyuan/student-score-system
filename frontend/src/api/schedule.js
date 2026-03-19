@@ -2,12 +2,12 @@ import request from './request'
 
 // 获取所有节次列表
 export const getSchedulePeriods = () => {
-  return request.get('/api/schedule-periods')
+  return request.get('/api/schedule-periods/')
 }
 
 // 创建节次（仅管理员）
 export const createSchedulePeriod = (data) => {
-  return request.post('/api/schedule-periods', data)
+  return request.post('/api/schedule-periods/', data)
 }
 
 // 更新节次（仅管理员）
@@ -32,7 +32,7 @@ export const getTeacherSchedule = (teacherId) => {
 
 // 创建或更新课表项
 export const createOrUpdateSchedule = (data) => {
-  return request.post('/api/teacher-schedules', data)
+  return request.post('/api/teacher-schedules/', data)
 }
 
 // 删除课表项
@@ -42,12 +42,12 @@ export const deleteSchedule = (id) => {
 
 // 获取备忘录列表
 export const getMemos = (params) => {
-  return request.get('/api/memos', { params })
+  return request.get('/api/memos/', { params })
 }
 
 // 创建备忘录
 export const createMemo = (data) => {
-  return request.post('/api/memos', data)
+  return request.post('/api/memos/', data)
 }
 
 // 更新备忘录
@@ -67,5 +67,5 @@ export const updateMemoStatus = (id, status) => {
 
 // 获取每日语句
 export const getDailyQuote = () => {
-  return request.get('/api/daily-quote')
+  return request.get('/api/daily-quote/')
 }

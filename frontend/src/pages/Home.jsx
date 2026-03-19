@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
-import { Typography, Card, Row, Col, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, message, Checkbox } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Typography, Card, Row, Col, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, message, Checkbox, TimePicker } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
 import { useAuth } from '../contexts/AuthContext'
-import { getDailyQuote, getMySchedule, getMemos, createMemo, updateMemo, deleteMemo, updateMemoStatus, getSchedulePeriods, createOrUpdateSchedule, deleteSchedule } from '../api/schedule'
+import { getDailyQuote, getMySchedule, getMemos, createMemo, updateMemo, deleteMemo, updateMemoStatus, getSchedulePeriods, createOrUpdateSchedule, deleteSchedule, updateSchedulePeriod } from '../api/schedule'
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
 import dayjs from 'dayjs'
@@ -20,10 +20,13 @@ export default function Home() {
   const [subjects, setSubjects] = useState([])
   const [memoModalVisible, setMemoModalVisible] = useState(false)
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false)
+  const [periodModalVisible, setPeriodModalVisible] = useState(false)
   const [editingMemo, setEditingMemo] = useState(null)
   const [editingSchedule, setEditingSchedule] = useState(null)
+  const [editingPeriod, setEditingPeriod] = useState(null)
   const [memoForm] = Form.useForm()
   const [scheduleForm] = Form.useForm()
+  const [periodForm] = Form.useForm()
 
   const roleLabel = user?.role === 'admin' ? '管理员' : user?.role === 'teacher' ? '教师' : '学生'
   const isTeacherOrAdmin = user?.role === 'teacher' || user?.role === 'admin'
@@ -33,33 +36,53 @@ export default function Home() {
   }, [])
 
   const loadData = async () => {
+    // 加载每日语句
     try {
-      // 加载每日语句
       const quoteRes = await getDailyQuote()
       setQuote(quoteRes.data)
+    } catch (error) {
+      console.error('加载每日语句失败:', error)
+    }
 
-      if (isTeacherOrAdmin) {
-        // 加载课表
+    if (isTeacherOrAdmin) {
+      // 加载课表
+      try {
         const scheduleRes = await getMySchedule()
         setSchedule(scheduleRes.data)
+      } catch (error) {
+        console.error('加载课表失败:', error)
+      }
 
-        // 加载节次
+      // 加载节次
+      try {
         const periodsRes = await getSchedulePeriods()
         setPeriods(periodsRes.data)
+      } catch (error) {
+        console.error('加载节次失败:', error)
+      }
 
-        // 加载备忘录（最多5条未完成）
+      // 加载备忘录
+      try {
         const memosRes = await getMemos({ status: 'pending', limit: 5 })
         setMemos(memosRes.data)
+      } catch (error) {
+        console.error('加载备忘录失败:', error)
+      }
 
-        // 加载班级和科目
+      // 加载班级和科目
+      try {
         const classesRes = await getClasses()
         setClasses(classesRes.data)
+      } catch (error) {
+        console.error('加载班级失败:', error)
+      }
 
+      try {
         const subjectsRes = await getSubjects()
         setSubjects(subjectsRes.data)
+      } catch (error) {
+        console.error('加载科目失败:', error)
       }
-    } catch (error) {
-      message.error('加载数据失败')
     }
   }
 
@@ -159,6 +182,88 @@ export default function Home() {
     }
   }
 
+  const handleEditPeriod = (period) => {
+    setEditingPeriod(period)
+    periodForm.setFieldsValue({
+      name: period.name,
+      start_time: dayjs(period.start_time, 'HH:mm'),
+      end_time: dayjs(period.end_time, 'HH:mm')
+    })
+    setPeriodModalVisible(true)
+  }
+
+  const handlePeriodSubmit = async () => {
+    try {
+      const values = await periodForm.validateFields()
+      const newStartTime = values.start_time.format('HH:mm')
+      const newEndTime = values.end_time.format('HH:mm')
+
+      const oldStartTime = editingPeriod.start_time
+      const oldEndTime = editingPeriod.end_time
+
+      // 计算时间差（分钟）
+      const oldStart = dayjs(oldStartTime, 'HH:mm')
+      const newStart = dayjs(newStartTime, 'HH:mm')
+      const timeDiff = newStart.diff(oldStart, 'minute')
+
+      // 如果时间有变化，询问是否调整其他节次
+      if (timeDiff !== 0) {
+        Modal.confirm({
+          title: '时间调整确认',
+          content: `检测到时间变化了 ${Math.abs(timeDiff)} 分钟，是否同步调整后续节次的时间？`,
+          okText: '是',
+          cancelText: '否',
+          onOk: async () => {
+            await updatePeriodWithAdjustment(editingPeriod.id, values, timeDiff, true)
+          },
+          onCancel: async () => {
+            await updatePeriodWithAdjustment(editingPeriod.id, values, timeDiff, false)
+          }
+        })
+      } else {
+        await updatePeriodWithAdjustment(editingPeriod.id, values, 0, false)
+      }
+    } catch (error) {
+      message.error('操作失败')
+    }
+  }
+
+  const updatePeriodWithAdjustment = async (periodId, values, timeDiff, adjustOthers) => {
+    try {
+      const data = {
+        name: values.name,
+        start_time: values.start_time.format('HH:mm'),
+        end_time: values.end_time.format('HH:mm')
+      }
+
+      await updateSchedulePeriod(periodId, data)
+
+      // 如果需要调整其他节次
+      if (adjustOthers && timeDiff !== 0) {
+        const currentIndex = periods.findIndex(p => p.id === periodId)
+        const laterPeriods = periods.slice(currentIndex + 1)
+
+        for (const period of laterPeriods) {
+          const oldStart = dayjs(period.start_time, 'HH:mm')
+          const oldEnd = dayjs(period.end_time, 'HH:mm')
+          const newStart = oldStart.add(timeDiff, 'minute')
+          const newEnd = oldEnd.add(timeDiff, 'minute')
+
+          await updateSchedulePeriod(period.id, {
+            start_time: newStart.format('HH:mm'),
+            end_time: newEnd.format('HH:mm')
+          })
+        }
+      }
+
+      message.success('更新成功')
+      setPeriodModalVisible(false)
+      loadData()
+    } catch (error) {
+      message.error('更新失败')
+    }
+  }
+
   const getPriorityColor = (priority) => {
     switch (priority) {
       case 'high': return 'red'
@@ -252,7 +357,24 @@ export default function Home() {
         <Row gutter={24}>
           {/* 课表区域 */}
           <Col xs={24} lg={14}>
-            <Card title="本周课表" style={{ marginBottom: 24 }}>
+            <Card
+              title="本周课表"
+              extra={
+                user?.role === 'admin' && (
+                  <Button
+                    icon={<SettingOutlined />}
+                    onClick={() => {
+                      if (periods.length > 0) {
+                        handleEditPeriod(periods[0])
+                      }
+                    }}
+                  >
+                    节次管理
+                  </Button>
+                )
+              }
+              style={{ marginBottom: 24 }}
+            >
               <Table
                 dataSource={scheduleTable}
                 columns={scheduleColumns}
@@ -368,6 +490,55 @@ export default function Home() {
             </Select>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 节次编辑弹窗 */}
+      <Modal
+        title="编辑节次时间"
+        open={periodModalVisible}
+        onOk={handlePeriodSubmit}
+        onCancel={() => setPeriodModalVisible(false)}
+        width={600}
+      >
+        <Form form={periodForm} layout="vertical">
+          <Form.Item name="name" label="节次名称" rules={[{ required: true, message: '请输入节次名称' }]}>
+            <Input disabled />
+          </Form.Item>
+          <Form.Item name="start_time" label="开始时间" rules={[{ required: true, message: '请选择开始时间' }]}>
+            <TimePicker format="HH:mm" style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="end_time" label="结束时间" rules={[{ required: true, message: '请选择结束时间' }]}>
+            <TimePicker format="HH:mm" style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+        <div style={{ marginTop: 16, padding: 12, background: '#f0f2f5', borderRadius: 4 }}>
+          <p style={{ margin: 0, fontSize: 12, color: '#666' }}>
+            提示：修改时间后，系统会询问是否同步调整后续节次的时间
+          </p>
+        </div>
+        {periods.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <p style={{ fontWeight: 'bold', marginBottom: 8 }}>所有节次：</p>
+            {periods.map(p => (
+              <div
+                key={p.id}
+                style={{
+                  padding: '8px 12px',
+                  marginBottom: 4,
+                  background: editingPeriod?.id === p.id ? '#e6f7ff' : '#fafafa',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between'
+                }}
+                onClick={() => handleEditPeriod(p)}
+              >
+                <span>{p.name}</span>
+                <span style={{ color: '#666' }}>{p.start_time} - {p.end_time}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </Modal>
     </div>
   )
