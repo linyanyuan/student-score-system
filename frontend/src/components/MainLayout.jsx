@@ -12,6 +12,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   LogoutOutlined,
+  ReadOutlined,
 } from '@ant-design/icons'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -45,8 +46,9 @@ export default function MainLayout() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Sider trigger={null} collapsible collapsed={collapsed}>
-        <div style={{ height: 32, margin: 16, color: '#fff', textAlign: 'center', fontSize: collapsed ? 14 : 16, fontWeight: 'bold', lineHeight: '32px', whiteSpace: 'nowrap', overflow: 'hidden' }}>
-          {collapsed ? '成绩' : '学生成绩管理系统'}
+        <div style={{ height: 32, margin: 16, color: '#fff', textAlign: 'center', fontSize: collapsed ? 14 : 16, fontWeight: 'bold', lineHeight: '32px', whiteSpace: 'nowrap', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <ReadOutlined style={{ fontSize: 20 }} />
+          {!collapsed && '学生成绩管理系统'}
         </div>
         <Menu
           theme="dark"
