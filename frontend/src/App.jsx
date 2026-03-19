@@ -12,6 +12,7 @@ import CustomFieldManage from './pages/CustomFieldManage'
 import StudentManage from './pages/StudentManage'
 import ExamManage from './pages/ExamManage'
 import ScoreManage from './pages/ScoreManage'
+import SeatManage from './pages/SeatManage'
 
 export default function App() {
   return (
@@ -30,6 +31,7 @@ export default function App() {
               <Route path="/students" element={<StudentManage />} />
               <Route path="/exams" element={<ExamManage />} />
               <Route path="/scores" element={<ScoreManage />} />
+              <Route path="/seats" element={<SeatManage />} />
             </Route>
           </Route>
         </Routes>

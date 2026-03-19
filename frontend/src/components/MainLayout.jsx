@@ -13,6 +13,7 @@ import {
   MenuUnfoldOutlined,
   LogoutOutlined,
   ReadOutlined,
+  TableOutlined,
 } from '@ant-design/icons'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
@@ -28,6 +29,7 @@ const allMenuItems = [
   { key: '/students', icon: <SolutionOutlined />, label: '学生管理', roles: ['admin', 'teacher'] },
   { key: '/exams', icon: <FileTextOutlined />, label: '考试管理', roles: ['admin'] },
   { key: '/scores', icon: <BarChartOutlined />, label: '成绩管理', roles: ['admin', 'teacher', 'student'] },
+  { key: '/seats', icon: <TableOutlined />, label: '座位管理', roles: ['admin', 'teacher'] },
 ]
 
 export default function MainLayout() {

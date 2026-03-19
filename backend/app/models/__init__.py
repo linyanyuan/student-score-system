@@ -11,9 +11,10 @@ from app.models.schedule_period import SchedulePeriod
 from app.models.teacher_schedule import TeacherSchedule
 from app.models.memo import Memo
 from app.models.daily_quote import DailyQuote
+from app.models.seat_arrangement import SeatArrangement
 
 __all__ = [
     "User", "Class", "Subject", "TeacherClass", "CustomFieldDefinition",
     "Student", "Exam", "Score", "TotalRank",
-    "SchedulePeriod", "TeacherSchedule", "Memo", "DailyQuote",
+    "SchedulePeriod", "TeacherSchedule", "Memo", "DailyQuote", "SeatArrangement",
 ]
