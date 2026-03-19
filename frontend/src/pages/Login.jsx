@@ -30,13 +30,13 @@ export default function Login() {
       // 判断错误类型
       if (!err.response) {
         // 网络错误
-        message.error('网络连接失败，请检查网络后重试', 5)
+        message.error('网络连接失败，请检查网络后重试', 2)
       } else if (err.response?.status === 401 || err.response?.status === 400) {
         // 认证错误
-        message.error('账号或密码错误，请重新输入', 5)
+        message.error('账号或密码错误，请重新输入', 2)
       } else {
         // 其他错误
-        message.error('登录失败，请稍后重试', 5)
+        message.error('登录失败，请稍后重试', 2)
       }
     } finally {
       setLoading(false)

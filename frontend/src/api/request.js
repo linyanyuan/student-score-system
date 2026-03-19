@@ -20,6 +20,11 @@ request.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
+      // 如果是登录接口的 401 错误，不跳转，直接返回错误
+      if (error.config?.url?.includes('/api/auth/login')) {
+        return Promise.reject(error)
+      }
+      // 其他接口的 401 错误，清除 token 并跳转到登录页
       localStorage.removeItem('token')
       window.location.href = '/login'
       return Promise.reject(error)
