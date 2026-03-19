@@ -1,9 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import re
 
 from app.database import engine, Base
-from app.config import CORS_ORIGINS
 from app.routers import auth
 from app.routers import classes, subjects, teacher_classes, custom_fields, students
 from app.routers import exams, scores, analysis
@@ -13,11 +11,11 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="学生成绩管理系统", version="1.0.0")
 
-# 使用正则表达式匹配 Vercel 域名
+# 临时允许所有来源
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:5173",
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
