@@ -15,7 +15,8 @@ git push -u origin main
 
 ---
 
-### 第二步：部署后端到 Railway
+### 第二步：部署后端到 Railway 啊啊啊啊啊我操了  真麻烦
+
 
 1. **注册 Railway**
    - 访问 https://railway.app
