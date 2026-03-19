@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Table, Button, Select, Space, message, Modal, Form, InputNumber, Upload, Tag, Tabs,
+  Table, Button, Select, Space, message, Modal, Form, InputNumber, Upload, Tag, Tabs, Input, Popconfirm,
 } from 'antd'
-import { PlusOutlined, UploadOutlined, DownloadOutlined, SearchOutlined, BarChartOutlined } from '@ant-design/icons'
+import { PlusOutlined, UploadOutlined, DownloadOutlined, SearchOutlined, BarChartOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import {
-  getScores, createScore, importScores, exportScores, downloadScoreTemplate,
+  getScores, createScore, updateScore, upsertScore, importScores, exportScores, downloadScoreTemplate,
+  deleteScoreByStudent, batchDeleteScoresByStudents,
 } from '../api/score'
 import { getExams } from '../api/exam'
 import { getClasses } from '../api/class'
@@ -14,7 +15,7 @@ import { useAuth } from '../contexts/AuthContext'
 import StudentAnalysis from './StudentAnalysis'
 import ClassAnalysis from './ClassAnalysis'
 
-const SUBJECT_DISPLAY_ORDER = ['数学', '语文', '英语', '历史', '地理', '生物', '道法']
+const SUBJECT_DISPLAY_ORDER = ['语文', '数学', '英语', '物理', '生物', '历史', '地理', '道法']
 
 export default function ScoreManage() {
   const { user } = useAuth()
@@ -27,14 +28,20 @@ export default function ScoreManage() {
   const [pageSize, setPageSize] = useState(20)
   const [selectedExam, setSelectedExam] = useState(null)
   const [selectedClass, setSelectedClass] = useState(null)
+  const [searchStudentNo, setSearchStudentNo] = useState('')
+  const [searchStudentName, setSearchStudentName] = useState('')
   const [exams, setExams] = useState([])
   const [classes, setClasses] = useState([])
   const [subjects, setSubjects] = useState([])
   const [addModalOpen, setAddModalOpen] = useState(false)
+  const [editModalOpen, setEditModalOpen] = useState(false)
+  const [editingRecord, setEditingRecord] = useState(null)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [importResult, setImportResult] = useState(null)
   const [students, setStudents] = useState([])
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
   const [addForm] = Form.useForm()
+  const [editForm] = Form.useForm()
 
   const handleAnalyzeStudent = (studentId) => {
     setAnalysisStudentId(studentId)
@@ -53,6 +60,8 @@ export default function ScoreManage() {
     try {
       const params = { exam_id: selectedExam, page, page_size: pageSize }
       if (selectedClass) params.class_id = selectedClass
+      if (searchStudentNo) params.student_no = searchStudentNo
+      if (searchStudentName) params.student_name = searchStudentName
       const res = await getScores(params)
       setData(res.data.items)
       setTotal(res.data.total)
@@ -61,12 +70,13 @@ export default function ScoreManage() {
     } finally {
       setLoading(false)
     }
-  }, [selectedExam, selectedClass, page, pageSize])
+  }, [selectedExam, selectedClass, searchStudentNo, searchStudentName, page, pageSize])
 
   useEffect(() => { fetchData() }, [fetchData])
 
   const handleSearch = () => {
     setPage(1)
+    setSelectedRowKeys([])
     fetchData()
   }
 
@@ -100,6 +110,63 @@ export default function ScoreManage() {
       fetchData()
     } catch (err) {
       if (err.message) message.error(err.message)
+    }
+  }
+
+  const openEditModal = (record) => {
+    setEditingRecord(record)
+    const formValues = {}
+    sortedSubjects.forEach((subj) => {
+      formValues[`score_${subj.id}`] = record.subjects?.[subj.name] ?? null
+    })
+    editForm.setFieldsValue(formValues)
+    setEditModalOpen(true)
+  }
+
+  const handleEdit = async () => {
+    if (!editingRecord) return
+    try {
+      const values = await editForm.validateFields()
+
+      for (const subj of sortedSubjects) {
+        const newScore = values[`score_${subj.id}`]
+        if (newScore !== undefined && newScore !== null) {
+          await upsertScore({
+            student_id: editingRecord.student_id,
+            exam_id: selectedExam,
+            subject_id: subj.id,
+            score: newScore,
+          })
+        }
+      }
+      message.success('成绩修改成功')
+      setEditModalOpen(false)
+      setEditingRecord(null)
+      fetchData()
+    } catch (err) {
+      if (err.message) message.error(err.message)
+    }
+  }
+
+  const handleDeleteStudent = async (studentId) => {
+    try {
+      await deleteScoreByStudent(selectedExam, studentId)
+      message.success('删除成功')
+      setSelectedRowKeys(selectedRowKeys.filter((k) => k !== studentId))
+      fetchData()
+    } catch (err) {
+      message.error(err.message)
+    }
+  }
+
+  const handleBatchDelete = async () => {
+    try {
+      await batchDeleteScoresByStudents(selectedExam, selectedRowKeys)
+      message.success('批量删除成功')
+      setSelectedRowKeys([])
+      fetchData()
+    } catch (err) {
+      message.error(err.message)
     }
   }
 
@@ -189,19 +256,36 @@ export default function ScoreManage() {
       width: 80,
       render: (_, record) => record.subjects?.[subj.name] ?? '-',
     })),
-    { title: '总分', dataIndex: 'total_score', key: 'total_score', width: 80, sorter: (a, b) => a.total_score - b.total_score },
+    { title: '总分', dataIndex: 'total_score', key: 'total_score', width: 80, defaultSortOrder: 'descend', sorter: (a, b) => a.total_score - b.total_score },
     { title: '班级排名', dataIndex: 'rank_class', key: 'rank_class', width: 90, sorter: (a, b) => (a.rank_class || 999) - (b.rank_class || 999) },
     { title: '年级排名', dataIndex: 'rank_grade', key: 'rank_grade', width: 90, sorter: (a, b) => (a.rank_grade || 999) - (b.rank_grade || 999) },
     { title: '班级升降', dataIndex: 'rank_class_change', key: 'rank_class_change', width: 90, render: renderRankChange },
     { title: '年级升降', dataIndex: 'rank_grade_change', key: 'rank_grade_change', width: 90, render: renderRankChange },
     {
-      title: '操作', key: 'action', width: 80, fixed: 'right',
+      title: '操作', key: 'action', width: 180, fixed: 'right',
       render: (_, record) => (
-        <Button
-          size="small"
-          icon={<BarChartOutlined />}
-          onClick={() => handleAnalyzeStudent(record.student_id)}
-        >分析</Button>
+        <Space>
+          <Button
+            size="small"
+            icon={<BarChartOutlined />}
+            onClick={() => handleAnalyzeStudent(record.student_id)}
+          >分析</Button>
+          {isTeacherOrAdmin && (
+            <>
+              <Button
+                size="small"
+                icon={<EditOutlined />}
+                onClick={() => openEditModal(record)}
+              />
+              <Popconfirm
+                title="确认删除该学生本次考试的所有成绩？"
+                onConfirm={() => handleDeleteStudent(record.student_id)}
+              >
+                <Button size="small" danger icon={<DeleteOutlined />} />
+              </Popconfirm>
+            </>
+          )}
+        </Space>
       ),
     },
   ]
@@ -216,7 +300,7 @@ export default function ScoreManage() {
             style={{ width: 250 }}
             placeholder="选择考试（必选）"
             value={selectedExam}
-            onChange={(v) => { setSelectedExam(v); setPage(1) }}
+            onChange={(v) => { setSelectedExam(v); setPage(1); setSelectedRowKeys([]) }}
             options={exams.map((e) => ({ label: `${e.name} (${e.exam_date})`, value: e.id }))}
             showSearch
             optionFilterProp="label"
@@ -229,6 +313,22 @@ export default function ScoreManage() {
             onChange={(v) => { setSelectedClass(v); setPage(1) }}
             options={classes.map((c) => ({ label: c.name, value: c.id }))}
           />
+          <Input
+            style={{ width: 120 }}
+            placeholder="学号"
+            value={searchStudentNo}
+            onChange={(e) => setSearchStudentNo(e.target.value)}
+            allowClear
+            disabled={!selectedExam}
+          />
+          <Input
+            style={{ width: 120 }}
+            placeholder="姓名"
+            value={searchStudentName}
+            onChange={(e) => setSearchStudentName(e.target.value)}
+            allowClear
+            disabled={!selectedExam}
+          />
           <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} disabled={!selectedExam}>查询</Button>
         </Space>
         {isTeacherOrAdmin && (
@@ -239,6 +339,14 @@ export default function ScoreManage() {
             </Upload>
             <Button icon={<DownloadOutlined />} onClick={handleExport} disabled={!selectedExam}>导出 Excel</Button>
             <Button onClick={handleDownloadTemplate}>下载模板</Button>
+            {selectedRowKeys.length > 0 && (
+              <Popconfirm
+                title={`确认删除选中的 ${selectedRowKeys.length} 名学生的成绩？`}
+                onConfirm={handleBatchDelete}
+              >
+                <Button danger>删除所选 ({selectedRowKeys.length})</Button>
+              </Popconfirm>
+            )}
           </Space>
         )}
       </div>
@@ -249,6 +357,10 @@ export default function ScoreManage() {
         rowKey="student_id"
         loading={loading}
         scroll={{ x: 'max-content' }}
+        rowSelection={isTeacherOrAdmin ? {
+          selectedRowKeys,
+          onChange: setSelectedRowKeys,
+        } : undefined}
         pagination={{
           current: page,
           pageSize,
@@ -302,6 +414,22 @@ export default function ScoreManage() {
           </>
         )}
       </Modal>
+
+      <Modal
+        title={`编辑成绩 - ${editingRecord?.student_name}`}
+        open={editModalOpen}
+        onOk={handleEdit}
+        onCancel={() => { setEditModalOpen(false); setEditingRecord(null) }}
+        width={500}
+      >
+        <Form form={editForm} layout="vertical">
+          {sortedSubjects.map((subj) => (
+            <Form.Item key={subj.id} name={`score_${subj.id}`} label={subj.name}>
+              <InputNumber min={0} max={150} style={{ width: '100%' }} placeholder="分数" />
+            </Form.Item>
+          ))}
+        </Form>
+      </Modal>
     </>
   )
 
@@ -309,6 +437,7 @@ export default function ScoreManage() {
     <Tabs
       activeKey={activeTab}
       onChange={setActiveTab}
+      destroyInactiveTabPane
       items={[
         { key: 'list', label: '成绩列表', children: scoreListContent },
         {

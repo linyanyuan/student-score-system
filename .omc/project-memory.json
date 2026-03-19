@@ -1,0 +1,183 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1773850678672,
+  "projectRoot": "D:\\project\\student-score-system",
+  "techStack": {
+    "languages": [],
+    "frameworks": [],
+    "packageManager": null,
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": null,
+    "lintCommand": null,
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs"
+    ],
+    "gitBranches": null
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "backend": {
+      "path": "backend",
+      "purpose": null,
+      "fileCount": 4,
+      "lastAccessed": 1773850678660,
+      "keyFiles": [
+        "alembic.ini",
+        "create_admin.py",
+        "requirements.txt",
+        "student_score.db"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1773850678661,
+      "keyFiles": [
+        "技术方案1.2.md",
+        "项目需求文档1.1.md"
+      ]
+    },
+    "frontend": {
+      "path": "frontend",
+      "purpose": null,
+      "fileCount": 7,
+      "lastAccessed": 1773850678661,
+      "keyFiles": [
+        "eslint.config.js",
+        "index.html",
+        "package-lock.json",
+        "package.json",
+        "README.md"
+      ]
+    },
+    "backend\\app": {
+      "path": "backend\\app",
+      "purpose": "Application code",
+      "fileCount": 5,
+      "lastAccessed": 1773850678661,
+      "keyFiles": [
+        "config.py",
+        "database.py",
+        "dependencies.py"
+      ]
+    },
+    "frontend\\dist": {
+      "path": "frontend\\dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 3,
+      "lastAccessed": 1773850678662,
+      "keyFiles": [
+        "favicon.svg",
+        "icons.svg",
+        "index.html"
+      ]
+    },
+    "frontend\\node_modules": {
+      "path": "frontend\\node_modules",
+      "purpose": "Dependencies",
+      "fileCount": 1,
+      "lastAccessed": 1773850678663,
+      "keyFiles": []
+    },
+    "frontend\\public": {
+      "path": "frontend\\public",
+      "purpose": "Public files",
+      "fileCount": 2,
+      "lastAccessed": 1773850678663,
+      "keyFiles": [
+        "favicon.svg",
+        "icons.svg"
+      ]
+    },
+    "frontend\\src": {
+      "path": "frontend\\src",
+      "purpose": "Source code",
+      "fileCount": 3,
+      "lastAccessed": 1773850678663,
+      "keyFiles": [
+        "App.jsx",
+        "index.css",
+        "main.jsx"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "frontend\\src\\pages\\ClassAnalysis.jsx",
+      "accessCount": 19,
+      "lastAccessed": 1773856217056,
+      "type": "file"
+    },
+    {
+      "path": "frontend\\src\\pages\\StudentAnalysis.jsx",
+      "accessCount": 12,
+      "lastAccessed": 1773854801507,
+      "type": "file"
+    },
+    {
+      "path": "docs\\superpowers\\specs\\2026-03-19-score-module-bugfix-design.md",
+      "accessCount": 6,
+      "lastAccessed": 1773854632305,
+      "type": "file"
+    },
+    {
+      "path": "backend\\app\\routers\\scores.py",
+      "accessCount": 6,
+      "lastAccessed": 1773854938834,
+      "type": "file"
+    },
+    {
+      "path": "backend\\app\\routers\\analysis.py",
+      "accessCount": 4,
+      "lastAccessed": 1773852835221,
+      "type": "file"
+    },
+    {
+      "path": "backend\\app\\routers\\students.py",
+      "accessCount": 4,
+      "lastAccessed": 1773854798744,
+      "type": "file"
+    },
+    {
+      "path": "frontend\\src\\pages\\ScoreManage.jsx",
+      "accessCount": 3,
+      "lastAccessed": 1773853891364,
+      "type": "file"
+    },
+    {
+      "path": "frontend\\src\\api\\score.js",
+      "accessCount": 1,
+      "lastAccessed": 1773853891429,
+      "type": "file"
+    },
+    {
+      "path": "backend\\app\\dependencies.py",
+      "accessCount": 1,
+      "lastAccessed": 1773854222386,
+      "type": "file"
+    },
+    {
+      "path": "frontend\\src\\api\\analysis.js",
+      "accessCount": 1,
+      "lastAccessed": 1773854222450,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

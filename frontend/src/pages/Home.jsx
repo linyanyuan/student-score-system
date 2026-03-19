@@ -1,0 +1,374 @@
+import { useState, useEffect } from 'react'
+import { Typography, Card, Row, Col, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, message, Checkbox } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { useAuth } from '../contexts/AuthContext'
+import { getDailyQuote, getMySchedule, getMemos, createMemo, updateMemo, deleteMemo, updateMemoStatus, getSchedulePeriods, createOrUpdateSchedule, deleteSchedule } from '../api/schedule'
+import { getClasses } from '../api/class'
+import { getSubjects } from '../api/subject'
+import dayjs from 'dayjs'
+
+const { Title, Paragraph } = Typography
+const { TextArea } = Input
+
+export default function Home() {
+  const { user } = useAuth()
+  const [quote, setQuote] = useState(null)
+  const [schedule, setSchedule] = useState([])
+  const [periods, setPeriods] = useState([])
+  const [memos, setMemos] = useState([])
+  const [classes, setClasses] = useState([])
+  const [subjects, setSubjects] = useState([])
+  const [memoModalVisible, setMemoModalVisible] = useState(false)
+  const [scheduleModalVisible, setScheduleModalVisible] = useState(false)
+  const [editingMemo, setEditingMemo] = useState(null)
+  const [editingSchedule, setEditingSchedule] = useState(null)
+  const [memoForm] = Form.useForm()
+  const [scheduleForm] = Form.useForm()
+
+  const roleLabel = user?.role === 'admin' ? '管理员' : user?.role === 'teacher' ? '教师' : '学生'
+  const isTeacherOrAdmin = user?.role === 'teacher' || user?.role === 'admin'
+
+  useEffect(() => {
+    loadData()
+  }, [])
+
+  const loadData = async () => {
+    try {
+      // 加载每日语句
+      const quoteRes = await getDailyQuote()
+      setQuote(quoteRes.data)
+
+      if (isTeacherOrAdmin) {
+        // 加载课表
+        const scheduleRes = await getMySchedule()
+        setSchedule(scheduleRes.data)
+
+        // 加载节次
+        const periodsRes = await getSchedulePeriods()
+        setPeriods(periodsRes.data)
+
+        // 加载备忘录（最多5条未完成）
+        const memosRes = await getMemos({ status: 'pending', limit: 5 })
+        setMemos(memosRes.data)
+
+        // 加载班级和科目
+        const classesRes = await getClasses()
+        setClasses(classesRes.data)
+
+        const subjectsRes = await getSubjects()
+        setSubjects(subjectsRes.data)
+      }
+    } catch (error) {
+      message.error('加载数据失败')
+    }
+  }
+
+  const handleCreateMemo = () => {
+    setEditingMemo(null)
+    memoForm.resetFields()
+    setMemoModalVisible(true)
+  }
+
+  const handleEditMemo = (memo) => {
+    setEditingMemo(memo)
+    memoForm.setFieldsValue({
+      ...memo,
+      due_date: memo.due_date ? dayjs(memo.due_date) : null
+    })
+    setMemoModalVisible(true)
+  }
+
+  const handleMemoSubmit = async () => {
+    try {
+      const values = await memoForm.validateFields()
+      const data = {
+        ...values,
+        due_date: values.due_date ? values.due_date.format('YYYY-MM-DD') : null
+      }
+
+      if (editingMemo) {
+        await updateMemo(editingMemo.id, data)
+        message.success('更新成功')
+      } else {
+        await createMemo(data)
+        message.success('创建成功')
+      }
+
+      setMemoModalVisible(false)
+      loadData()
+    } catch (error) {
+      message.error('操作失败')
+    }
+  }
+
+  const handleDeleteMemo = async (id) => {
+    try {
+      await deleteMemo(id)
+      message.success('删除成功')
+      loadData()
+    } catch (error) {
+      message.error('删除失败')
+    }
+  }
+
+  const handleToggleMemoStatus = async (memo) => {
+    try {
+      const newStatus = memo.status === 'pending' ? 'completed' : 'pending'
+      await updateMemoStatus(memo.id, newStatus)
+      message.success('状态更新成功')
+      loadData()
+    } catch (error) {
+      message.error('状态更新失败')
+    }
+  }
+
+  const handleEditSchedule = (periodId, weekday) => {
+    const existing = schedule.find(s => s.period_id === periodId && s.weekday === weekday)
+    setEditingSchedule({ periodId, weekday, existing })
+    scheduleForm.setFieldsValue({
+      class_id: existing?.class_id,
+      subject_id: existing?.subject_id
+    })
+    setScheduleModalVisible(true)
+  }
+
+  const handleScheduleSubmit = async () => {
+    try {
+      const values = await scheduleForm.validateFields()
+      await createOrUpdateSchedule({
+        period_id: editingSchedule.periodId,
+        weekday: editingSchedule.weekday,
+        class_id: values.class_id || null,
+        subject_id: values.subject_id || null
+      })
+      message.success('保存成功')
+      setScheduleModalVisible(false)
+      loadData()
+    } catch (error) {
+      message.error('保存失败')
+    }
+  }
+
+  const handleDeleteSchedule = async (id) => {
+    try {
+      await deleteSchedule(id)
+      message.success('删除成功')
+      loadData()
+    } catch (error) {
+      message.error('删除失败')
+    }
+  }
+
+  const getPriorityColor = (priority) => {
+    switch (priority) {
+      case 'high': return 'red'
+      case 'medium': return 'orange'
+      case 'low': return 'green'
+      default: return 'default'
+    }
+  }
+
+  const getPriorityLabel = (priority) => {
+    switch (priority) {
+      case 'high': return '高'
+      case 'medium': return '中'
+      case 'low': return '低'
+      default: return priority
+    }
+  }
+
+  // 构建课表数据结构
+  const scheduleTable = periods.map(period => {
+    const row = { period: period.name, time: `${period.start_time}-${period.end_time}` }
+    for (let day = 1; day <= 5; day++) {
+      const item = schedule.find(s => s.period_id === period.id && s.weekday === day)
+      row[`day${day}`] = item
+    }
+    return row
+  })
+
+  const scheduleColumns = [
+    { title: '节次', dataIndex: 'period', key: 'period', width: 100 },
+    { title: '时间', dataIndex: 'time', key: 'time', width: 120 },
+    ...['周一', '周二', '周三', '周四', '周五'].map((day, index) => ({
+      title: day,
+      dataIndex: `day${index + 1}`,
+      key: `day${index + 1}`,
+      render: (item, record) => {
+        const periodId = periods.find(p => p.name === record.period)?.id
+        return (
+          <div
+            style={{ cursor: 'pointer', minHeight: 40, padding: 4 }}
+            onClick={() => handleEditSchedule(periodId, index + 1)}
+          >
+            {item ? (
+              <div>
+                <div>{item.class_name}-{item.subject_name}</div>
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDeleteSchedule(item.id)
+                  }}
+                >
+                  删除
+                </Button>
+              </div>
+            ) : (
+              <div style={{ color: '#999' }}>点击添加</div>
+            )}
+          </div>
+        )
+      }
+    }))
+  ]
+
+  return (
+    <div style={{ padding: 24 }}>
+      {/* 每日语句 */}
+      {quote && (
+        <Card style={{ marginBottom: 24, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
+          <Paragraph style={{ fontSize: 18, marginBottom: 8, color: 'white' }}>
+            "{quote.content}"
+          </Paragraph>
+          {quote.source && (
+            <Paragraph style={{ textAlign: 'right', marginBottom: 0, color: 'rgba(255,255,255,0.8)' }}>
+              — {quote.source}
+            </Paragraph>
+          )}
+        </Card>
+      )}
+
+      {!isTeacherOrAdmin && (
+        <div style={{ textAlign: 'center', paddingTop: 60 }}>
+          <Title level={2}>欢迎, {user?.username}</Title>
+          <p>角色: {roleLabel}</p>
+        </div>
+      )}
+
+      {isTeacherOrAdmin && (
+        <Row gutter={24}>
+          {/* 课表区域 */}
+          <Col xs={24} lg={14}>
+            <Card title="本周课表" style={{ marginBottom: 24 }}>
+              <Table
+                dataSource={scheduleTable}
+                columns={scheduleColumns}
+                pagination={false}
+                size="small"
+                rowKey="period"
+              />
+            </Card>
+          </Col>
+
+          {/* 备忘录区域 */}
+          <Col xs={24} lg={10}>
+            <Card
+              title="备忘录"
+              extra={
+                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateMemo}>
+                  新建
+                </Button>
+              }
+              style={{ marginBottom: 24 }}
+            >
+              {memos.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                  暂无待办事项
+                </div>
+              ) : (
+                memos.map(memo => (
+                  <Card
+                    key={memo.id}
+                    size="small"
+                    style={{ marginBottom: 12 }}
+                    actions={[
+                      <EditOutlined key="edit" onClick={() => handleEditMemo(memo)} />,
+                      <DeleteOutlined key="delete" onClick={() => handleDeleteMemo(memo.id)} />
+                    ]}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                      <Checkbox
+                        checked={memo.status === 'completed'}
+                        onChange={() => handleToggleMemoStatus(memo)}
+                      />
+                      <span style={{ marginLeft: 8, flex: 1, textDecoration: memo.status === 'completed' ? 'line-through' : 'none' }}>
+                        {memo.title}
+                      </span>
+                      <Tag color={getPriorityColor(memo.priority)}>{getPriorityLabel(memo.priority)}</Tag>
+                    </div>
+                    {memo.description && (
+                      <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{memo.description}</div>
+                    )}
+                    {memo.due_date && (
+                      <div style={{ fontSize: 12, color: dayjs(memo.due_date).isBefore(dayjs()) ? 'red' : '#999' }}>
+                        截止: {memo.due_date}
+                      </div>
+                    )}
+                  </Card>
+                ))
+              )}
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* 备忘录编辑弹窗 */}
+      <Modal
+        title={editingMemo ? '编辑备忘录' : '新建备忘录'}
+        open={memoModalVisible}
+        onOk={handleMemoSubmit}
+        onCancel={() => setMemoModalVisible(false)}
+      >
+        <Form form={memoForm} layout="vertical">
+          <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <TextArea rows={3} />
+          </Form.Item>
+          <Form.Item name="priority" label="优先级" initialValue="medium">
+            <Select>
+              <Select.Option value="high">高</Select.Option>
+              <Select.Option value="medium">中</Select.Option>
+              <Select.Option value="low">低</Select.Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="category" label="分类">
+            <Input placeholder="如：教学任务、会议等" />
+          </Form.Item>
+          <Form.Item name="due_date" label="截止日期">
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 课表编辑弹窗 */}
+      <Modal
+        title="编辑课表"
+        open={scheduleModalVisible}
+        onOk={handleScheduleSubmit}
+        onCancel={() => setScheduleModalVisible(false)}
+      >
+        <Form form={scheduleForm} layout="vertical">
+          <Form.Item name="class_id" label="班级">
+            <Select allowClear placeholder="选择班级">
+              {classes.map(c => (
+                <Select.Option key={c.id} value={c.id}>{c.name}</Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item name="subject_id" label="科目">
+            <Select allowClear placeholder="选择科目">
+              {subjects.map(s => (
+                <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
+    </div>
+  )
+}

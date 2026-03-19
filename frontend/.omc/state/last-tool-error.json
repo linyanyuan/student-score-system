@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"python -m py_compile app/routers/analysis.py && echo \\\"Python syntax OK\\\"\",\"description\":\"Check Python syntax\"}",
+  "error": "Exit code 1\n[Errno 2] No such file or directory: 'app/routers/analysis.py'",
+  "timestamp": "2026-03-18T16:54:20.025Z",
+  "retry_count": 1
+}

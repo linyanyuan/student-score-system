@@ -5,6 +5,7 @@ from app.database import engine, Base
 from app.routers import auth
 from app.routers import classes, subjects, teacher_classes, custom_fields, students
 from app.routers import exams, scores, analysis
+from app.routers import schedule_periods, teacher_schedules, memos, daily_quote
 
 Base.metadata.create_all(bind=engine)
 
@@ -27,3 +28,7 @@ app.include_router(students.router)
 app.include_router(exams.router)
 app.include_router(scores.router)
 app.include_router(analysis.router)
+app.include_router(schedule_periods.router)
+app.include_router(teacher_schedules.router)
+app.include_router(memos.router)
+app.include_router(daily_quote.router)

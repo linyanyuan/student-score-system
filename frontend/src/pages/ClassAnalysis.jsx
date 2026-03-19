@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { Row, Col, Card, Select, Table, Tag, Spin, Empty, Typography } from 'antd'
-import { Column } from '@ant-design/charts'
+import { Row, Col, Card, Select, Table, Tag, Spin, Empty, Typography, Tooltip, Checkbox } from 'antd'
+import { QuestionCircleOutlined } from '@ant-design/icons'
+import { Column, Bar } from '@ant-design/charts'
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
 import {
@@ -12,22 +13,34 @@ import {
 
 const { Text } = Typography
 
-function DistributionChart({ data, title }) {
-  if (!data) return <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+function DistributionChart({ data }) {
+  if (!data || (data.excellent_rate === 0 && data.good_rate === 0 && data.pass_rate === 0 && data.fail_rate === 0)) {
+    return <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+  }
   const chartData = [
-    { type: '优秀(≥90)', value: data.excellent_rate },
-    { type: '良好(80-89)', value: data.good_rate },
-    { type: '合格(60-79)', value: data.pass_rate },
-    { type: '不合格(<60)', value: data.fail_rate },
+    { type: '优秀(≥90%)', value: data.excellent_rate || 0, count: data.excellent_count || 0 },
+    { type: '良好(80-89%)', value: data.good_rate || 0, count: data.good_count || 0 },
+    { type: '合格(60-79%)', value: data.pass_rate || 0, count: data.pass_count || 0 },
+    { type: '不合格(<60%)', value: data.fail_rate || 0, count: data.fail_count || 0 },
   ]
   const config = {
     data: chartData,
     xField: 'type',
     yField: 'value',
-    yAxis: { label: { formatter: (v) => `${(v * 100).toFixed(0)}%` } },
-    label: { position: 'top', formatter: (d) => `${(d.value * 100).toFixed(1)}%` },
-    color: ['#52c41a', '#1890ff', '#faad14', '#ff4d4f'],
+    axis: { y: { labelFormatter: (v) => `${(v * 100).toFixed(0)}%` } },
+    label: {
+      position: 'top',
+      text: (datum) => {
+        const count = datum?.count
+        return count !== undefined && count !== null ? `${count}人` : '-'
+      },
+    },
+    scale: { color: { range: ['#52c41a', '#1890ff', '#faad14', '#ff4d4f'] } },
     colorField: 'type',
+    tooltip: {
+      title: (d) => d?.type || '-',
+      items: [{ field: 'count', name: '人数', valueFormatter: (v) => `${v}人` }],
+    },
   }
   return <Column {...config} height={220} />
 }
@@ -36,10 +49,11 @@ export default function ClassAnalysis({ examId }) {
   const [classes, setClasses] = useState([])
   const [subjects, setSubjects] = useState([])
   const [classId, setClassId] = useState(null)
-  const [subjectId, setSubjectId] = useState(null)
+  const [selectedSubjectIds, setSelectedSubjectIds] = useState([])
   const [loading, setLoading] = useState(false)
 
-  const [classesRank, setClassesRank] = useState([])
+  const [classesRankData, setClassesRankData] = useState([])
+  const [totalRankData, setTotalRankData] = useState([])
   const [distribution, setDistribution] = useState(null)
   const [bottomStudents, setBottomStudents] = useState([])
   const [biasedStudents, setBiasedStudents] = useState([])
@@ -50,17 +64,48 @@ export default function ClassAnalysis({ examId }) {
     getSubjects().then((res) => setSubjects(res.data || []))
   }, [])
 
-  // Fetch class rank when examId or subjectId changes
+  // Fetch total score rank (always shown on right)
   useEffect(() => {
-    if (!examId) return
-    getClassesRank(examId, subjectId || undefined).then((res) => {
-      setClassesRank(res.data || [])
+    if (!examId) {
+      setTotalRankData([])
+      return
+    }
+    getClassesRank(examId, undefined).then((res) => {
+      const data = (res.data || []).sort((a, b) => b.avg_score - a.avg_score)
+      setTotalRankData(data)
     })
-  }, [examId, subjectId])
+  }, [examId])
+
+  // Fetch subject rank when examId or selectedSubjectIds changes
+  useEffect(() => {
+    if (!examId || selectedSubjectIds.length === 0) {
+      setClassesRankData([])
+      return
+    }
+    Promise.all(
+      selectedSubjectIds.map((subjectId) =>
+        getClassesRank(examId, subjectId).then((res) => {
+          const subjectName = subjects.find((s) => s.id === subjectId)?.name || '未知科目'
+          return (res.data || []).map((item) => ({
+            ...item,
+            subject_name: subjectName,
+            subject_id: subjectId,
+          }))
+        })
+      )
+    ).then((results) => {
+      setClassesRankData(results.flat())
+    })
+  }, [examId, selectedSubjectIds, subjects])
 
   // Fetch single-class analysis when classId or examId changes
   useEffect(() => {
-    if (!classId || !examId) return
+    if (!classId || !examId) {
+      setDistribution(null)
+      setBottomStudents([])
+      setBiasedStudents([])
+      return
+    }
     setLoading(true)
     Promise.all([
       getClassDistribution(classId, examId),
@@ -73,17 +118,56 @@ export default function ClassAnalysis({ examId }) {
         setBiasedStudents(biasedRes.data || [])
         setSelectedSubjectDist('total')
       })
+      .catch(() => {
+        setDistribution(null)
+        setBottomStudents([])
+        setBiasedStudents([])
+      })
       .finally(() => setLoading(false))
   }, [classId, examId])
 
-  // Class rank chart
+  // Subject rank chart config - x轴为科目，不同班级作为分组
   const rankConfig = {
-    data: classesRank,
+    data: classesRankData,
+    xField: 'subject_name',
+    yField: 'avg_score',
+    seriesField: 'class_name',
+    isGroup: true,
+    labels:[
+      { text: (datum) => {
+        const score = datum?.avg_score
+        return score !== undefined && score !== null ? score.toFixed(2) : '-'
+      }, style: {
+         fill: '#f01010',
+        fontWeight: 600, dy: -18 } },],
+    colorField: 'class_name',
+    axis: { x: { labelAutoRotate: true } },
+    tooltip: {
+      title: (d) => d?.subject_name || '-',
+      items: [{ field: 'avg_score', name: (d) => d?.class_name || '-', valueFormatter: (v) => Number(v).toFixed(2) }],
+    },
+    legend: { position: 'top' },
+  }
+
+  // Total rank chart config - 横向条形图排行榜
+  const totalRankConfig = {
+    data: totalRankData,
     xField: 'class_name',
     yField: 'avg_score',
-    label: { position: 'top', formatter: (d) => d.avg_score?.toFixed(1) },
-    color: '#1890ff',
-    xAxis: { label: { autoRotate: true } },
+    legend: false,
+    colorField: 'class_name',
+    labels:[{
+      position: 'right',
+      text: (datum) => datum?.avg_score?.toFixed(2) ?? '-',
+      style: {
+         fill: '#f01010',
+        fontWeight: 600,dx:50} 
+    },],
+    axis: { y: false, y: { labelAutoRotate: false } },
+    tooltip: {
+      title: (d) => d.class_name,
+      items: [{ field: 'avg_score', name: '平均分', valueFormatter: (v) => Number(v).toFixed(2) }],
+    },
   }
 
   // Build subject columns for bottom/biased tables dynamically
@@ -125,13 +209,13 @@ export default function ClassAnalysis({ examId }) {
   const biasedColumns = [
     { title: '学号', dataIndex: 'student_no', key: 'student_no', width: 100 },
     { title: '姓名', dataIndex: 'student_name', key: 'student_name', width: 80 },
-    { title: '标准差', dataIndex: 'std_dev', key: 'std_dev', width: 80 },
+    { title: '偏科科目数', dataIndex: 'weak_count', key: 'weak_count', width: 100 },
     ...subjectCols,
     {
       title: '偏科科目',
-      dataIndex: 'weak_subject',
-      key: 'weak_subject',
-      render: (val) => val ? <Tag color="orange">{val}</Tag> : '-',
+      dataIndex: 'weak_subjects',
+      key: 'weak_subjects',
+      render: (val) => val?.map((s) => <Tag color="orange" key={s}>{s}</Tag>),
     },
   ]
 
@@ -153,17 +237,6 @@ export default function ClassAnalysis({ examId }) {
       {/* Filters */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col>
-          <Text>科目（班级排名用）：</Text>
-          <Select
-            allowClear
-            placeholder="总分"
-            style={{ width: 120 }}
-            value={subjectId}
-            onChange={setSubjectId}
-            options={subjects.map((s) => ({ value: s.id, label: s.name }))}
-          />
-        </Col>
-        <Col>
           <Text>选择班级（深度分析）：</Text>
           <Select
             allowClear
@@ -180,14 +253,37 @@ export default function ClassAnalysis({ examId }) {
         <Empty description="请先在成绩列表中选择考试" />
       ) : (
         <>
-          {/* Class rank chart */}
-          <Card title="班级排名" size="small" style={{ marginBottom: 16 }}>
-            {classesRank.length > 0 ? (
-              <Column {...rankConfig} height={260} />
-            ) : (
-              <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            )}
-          </Card>
+          {/* Class rank charts - left: subject rank, right: total rank */}
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col xs={24} lg={12}>
+              <Card
+                title="科目排名"
+                size="small"
+                extra={
+                  <Checkbox.Group
+                    value={selectedSubjectIds}
+                    onChange={setSelectedSubjectIds}
+                    options={subjects.map((s) => ({ value: s.id, label: s.name }))}
+                  />
+                }
+              >
+                {selectedSubjectIds.length > 0 && classesRankData.length > 0 ? (
+                  <Column {...rankConfig} height={260} />
+                ) : (
+                  <Empty description="请勾选科目查看排名" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                )}
+              </Card>
+            </Col>
+            <Col xs={24} lg={12}>
+              <Card title="班级平均分排名" size="small">
+                {totalRankData.length > 0 ? (
+                  <Bar {...totalRankConfig} height={260} />
+                ) : (
+                  <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                )}
+              </Card>
+            </Col>
+          </Row>
 
           {/* Single class deep analysis */}
           {classId && (
@@ -229,7 +325,17 @@ export default function ClassAnalysis({ examId }) {
 
                 {/* Biased students */}
                 <Col xs={24}>
-                  <Card title="偏科生分析" size="small">
+                  <Card
+                    title={
+                      <span>
+                        偏科生分析{' '}
+                        <Tooltip title="仅统计班级总分排名前 40 名的同学。若某同学任意科目成绩低于本班本次考试该科平均分，则视为偏科生。">
+                          <QuestionCircleOutlined style={{ color: '#999', cursor: 'pointer' }} />
+                        </Tooltip>
+                      </span>
+                    }
+                    size="small"
+                  >
                     <Table
                       dataSource={biasedStudents}
                       columns={biasedColumns}

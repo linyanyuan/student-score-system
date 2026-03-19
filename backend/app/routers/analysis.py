@@ -35,19 +35,36 @@ def _check_class_permission(class_id: int, current_user: User, db: Session):
         raise HTTPException(status_code=403, detail="无权访问该班级")
 
 
-def _calc_rates(scores: list[float]) -> dict:
+def _calc_rates(scores: list[float], max_score: float | None = None) -> dict:
+    """Calculate distribution rates and counts. If max_score is provided, use percentage thresholds."""
     if not scores:
-        return {"excellent_rate": 0.0, "good_rate": 0.0, "pass_rate": 0.0, "fail_rate": 0.0}
+        return {
+            "excellent_rate": 0.0, "good_rate": 0.0, "pass_rate": 0.0, "fail_rate": 0.0,
+            "excellent_count": 0, "good_count": 0, "pass_count": 0, "fail_count": 0, "total_count": 0,
+        }
     n = len(scores)
-    excellent = sum(1 for s in scores if s >= 90)
-    good = sum(1 for s in scores if 80 <= s < 90)
-    pass_ = sum(1 for s in scores if 60 <= s < 80)
-    fail = sum(1 for s in scores if s < 60)
+    if max_score and max_score > 0:
+        # Use percentage thresholds for total scores
+        excellent = sum(1 for s in scores if s / max_score >= 0.9)
+        good = sum(1 for s in scores if 0.8 <= s / max_score < 0.9)
+        pass_ = sum(1 for s in scores if 0.6 <= s / max_score < 0.8)
+        fail = sum(1 for s in scores if s / max_score < 0.6)
+    else:
+        # Use absolute thresholds for single subjects
+        excellent = sum(1 for s in scores if s >= 90)
+        good = sum(1 for s in scores if 80 <= s < 90)
+        pass_ = sum(1 for s in scores if 60 <= s < 80)
+        fail = sum(1 for s in scores if s < 60)
     return {
         "excellent_rate": round(excellent / n, 4),
         "good_rate": round(good / n, 4),
         "pass_rate": round(pass_ / n, 4),
         "fail_rate": round(fail / n, 4),
+        "excellent_count": excellent,
+        "good_count": good,
+        "pass_count": pass_,
+        "fail_count": fail,
+        "total_count": n,
     }
 
 
@@ -64,13 +81,20 @@ def student_total_trend(
         raise HTTPException(status_code=404, detail="学生不存在")
     _check_student_permission(student, current_user, db)
 
-    rows = (
+    # Get student's class grade
+    cls = db.query(Class).filter(Class.id == student.class_id).first()
+    grade = cls.grade if cls else None
+
+    query = (
         db.query(TotalRank, Exam)
         .join(Exam, Exam.id == TotalRank.exam_id)
         .filter(TotalRank.student_id == student_id)
-        .order_by(Exam.exam_date.asc())
-        .all()
     )
+    # Filter by grade to only show same-grade exams
+    if grade:
+        query = query.filter(Exam.grade == grade)
+
+    rows = query.order_by(Exam.exam_date.asc()).all()
     return [
         {"exam_name": exam.name, "exam_date": str(exam.exam_date), "total_score": rank.total_score}
         for rank, exam in rows
@@ -93,13 +117,20 @@ def student_subject_trend(
     if not subject:
         raise HTTPException(status_code=404, detail="科目不存在")
 
-    rows = (
+    # Get student's class grade
+    cls = db.query(Class).filter(Class.id == student.class_id).first()
+    grade = cls.grade if cls else None
+
+    query = (
         db.query(Score, Exam)
         .join(Exam, Exam.id == Score.exam_id)
         .filter(Score.student_id == student_id, Score.subject_id == subject_id)
-        .order_by(Exam.exam_date.asc())
-        .all()
     )
+    # Filter by grade
+    if grade:
+        query = query.filter(Exam.grade == grade)
+
+    rows = query.order_by(Exam.exam_date.asc()).all()
     return [
         {"exam_name": exam.name, "exam_date": str(exam.exam_date), "score": score.score}
         for score, exam in rows
@@ -117,13 +148,20 @@ def student_rank_trend(
         raise HTTPException(status_code=404, detail="学生不存在")
     _check_student_permission(student, current_user, db)
 
-    rows = (
+    # Get student's class grade
+    cls = db.query(Class).filter(Class.id == student.class_id).first()
+    grade = cls.grade if cls else None
+
+    query = (
         db.query(TotalRank, Exam)
         .join(Exam, Exam.id == TotalRank.exam_id)
         .filter(TotalRank.student_id == student_id)
-        .order_by(Exam.exam_date.asc())
-        .all()
     )
+    # Filter by grade
+    if grade:
+        query = query.filter(Exam.grade == grade)
+
+    rows = query.order_by(Exam.exam_date.asc()).all()
     return [
         {
             "exam_name": exam.name,
@@ -282,10 +320,13 @@ def class_distribution(
             Score.student_id.in_(student_ids),
         ).distinct().all()
     ]
-    subjects = {s.id: s.name for s in db.query(Subject).filter(Subject.id.in_(subject_ids)).all()}
+    subjects = {s.id: s for s in db.query(Subject).filter(Subject.id.in_(subject_ids)).all()}
+
+    # Calculate max total score: use actual max score in data as reference
+    max_total = max(total_scores) if total_scores else 0
 
     subjects_dist = {}
-    for subj_id, subj_name in subjects.items():
+    for subj_id, subj in subjects.items():
         scores = [
             r[0] for r in db.query(Score.score).filter(
                 Score.exam_id == exam_id,
@@ -293,9 +334,11 @@ def class_distribution(
                 Score.student_id.in_(student_ids),
             ).all()
         ]
-        subjects_dist[subj_name] = _calc_rates(scores)
+        # Single subject uses absolute thresholds (no max_score)
+        subjects_dist[subj.name] = _calc_rates(scores)
 
-    return {"total": _calc_rates(total_scores), "subjects": subjects_dist}
+    # Total uses percentage thresholds
+    return {"total": _calc_rates(total_scores, max_total), "subjects": subjects_dist}
 
 
 @router.get("/class/{class_id}/exam/{exam_id}/bottom-students")
@@ -379,6 +422,12 @@ def class_biased_students(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """
+    偏科生分析：
+    1. 取班级总分排名前40名的学生
+    2. 计算本班本次考试每科的平均分
+    3. 若某学生任意科目分数低于该科班级平均分，则为偏科生
+    """
     _check_class_permission(class_id, current_user, db)
 
     student_ids = [
@@ -387,52 +436,71 @@ def class_biased_students(
     if not student_ids:
         return []
 
+    # Get top 40 students by rank_class
+    top_ranks = (
+        db.query(TotalRank, Student)
+        .join(Student, Student.id == TotalRank.student_id)
+        .filter(
+            TotalRank.exam_id == exam_id,
+            TotalRank.student_id.in_(student_ids),
+            TotalRank.rank_class <= 40,
+        )
+        .order_by(TotalRank.rank_class.asc())
+        .all()
+    )
+
+    if not top_ranks:
+        return []
+
+    top_student_ids = [s.id for _, s in top_ranks]
+    student_map = {s.id: s for _, s in top_ranks}
+
+    # Get all scores for top students
     scores = db.query(Score).filter(
         Score.exam_id == exam_id,
-        Score.student_id.in_(student_ids),
+        Score.student_id.in_(top_student_ids),
     ).all()
 
     if not scores:
         return []
 
     subject_map = {s.id: s.name for s in db.query(Subject).all()}
-    student_map = {s.id: s for s in db.query(Student).filter(Student.id.in_(student_ids)).all()}
+
+    # Calculate class average per subject (using all students in class, not just top 40)
+    class_avgs = {}
+    subject_ids = {sc.subject_id for sc in scores}
+    for subj_id in subject_ids:
+        avg = db.query(func.avg(Score.score)).filter(
+            Score.exam_id == exam_id,
+            Score.subject_id == subj_id,
+            Score.student_id.in_(student_ids),
+        ).scalar()
+        class_avgs[subj_id] = float(avg) if avg is not None else 0.0
 
     # Group scores by student
     student_scores: dict[int, dict[int, float]] = {}
     for sc in scores:
         student_scores.setdefault(sc.student_id, {})[sc.subject_id] = sc.score
 
-    # Compute std_dev per student
-    student_stds: dict[int, float] = {}
-    for sid, subj_scores in student_scores.items():
-        vals = list(subj_scores.values())
-        if len(vals) < 2:
-            student_stds[sid] = 0.0
-        else:
-            student_stds[sid] = statistics.stdev(vals)
-
-    if not student_stds:
-        return []
-
-    class_avg_std = statistics.mean(student_stds.values())
-    threshold = class_avg_std * 1.5
-
     result = []
-    for sid, std_dev in student_stds.items():
-        if std_dev > threshold:
-            subj_scores = student_scores[sid]
-            weak_subj_id = min(subj_scores, key=lambda k: subj_scores[k])
-            student = student_map.get(sid)
-            if not student:
-                continue
+    for rank, student in top_ranks:
+        subj_scores = student_scores.get(student.id, {})
+        # Find subjects where score < class average
+        weak_subjects = []
+        for subj_id, score in subj_scores.items():
+            if score < class_avgs.get(subj_id, 0):
+                weak_subjects.append(subject_map.get(subj_id, str(subj_id)))
+
+        if weak_subjects:
             result.append({
                 "student_name": student.name,
                 "student_no": student.student_no,
+                "rank_class": rank.rank_class,
                 "subjects": {subject_map.get(k, str(k)): v for k, v in subj_scores.items()},
-                "std_dev": round(std_dev, 2),
-                "weak_subject": subject_map.get(weak_subj_id, str(weak_subj_id)),
+                "weak_subjects": weak_subjects,
+                "weak_count": len(weak_subjects),
             })
 
-    result.sort(key=lambda x: x["std_dev"], reverse=True)
+    # Sort by weak_count descending
+    result.sort(key=lambda x: x["weak_count"], reverse=True)
     return result
