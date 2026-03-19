@@ -11,11 +11,14 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="学生成绩管理系统", version="1.0.0")
 
-# 临时允许所有来源
+# CORS 配置 - 明确列出允许的域名
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "http://localhost:5173",
+        "https://project-84h33.vercel.app",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
