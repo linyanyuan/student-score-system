@@ -10,7 +10,7 @@ router = APIRouter(prefix="/api/auth", tags=["认证"])
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(req: RegisterRequest, db: Session = Depends(get_db)):
+def register(req: RegisterRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)):
     existing = db.query(User).filter(User.username == req.username).first()
     if existing:
         raise HTTPException(
@@ -22,6 +22,7 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
         username=req.username,
         password_hash=hash_password(req.password),
         role=req.role.value,
+        school_id=req.school_id,
     )
     db.add(user)
     db.commit()
@@ -49,7 +50,15 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 @router.get("/teachers", response_model=list[UserResponse])
 def list_teachers(
-    _: User = Depends(require_admin),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    return db.query(User).filter(User.role == "teacher").all()
+    from app.dependencies import require_admin_or_school_admin, get_user_school_id
+    if current_user.role not in ("admin", "school_admin"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="需要管理员或学校管理员权限")
+    query = db.query(User).filter(User.role == "teacher")
+    school_id = get_user_school_id(current_user)
+    if school_id is not None:
+        query = query.filter(User.school_id == school_id)
+    return query.all()

@@ -18,27 +18,22 @@ def get_memos(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """获取当前教师的备忘录列表"""
-    if current_user.role not in ("teacher", "admin"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要教师或管理员权限")
-
+    """获取当前用户的备忘录列表"""
     query = db.query(Memo).filter(Memo.teacher_id == current_user.id)
 
     if status_filter:
         query = query.filter(Memo.status == status_filter)
 
-    # 排序：未完成优先，按优先级和截止日期排序
     query = query.order_by(
-        Memo.status.asc(),  # pending 在前
-        Memo.priority.desc(),  # high > medium > low
+        Memo.status.asc(),
+        Memo.priority.desc(),
         Memo.due_date.asc()
     )
 
     if limit:
         query = query.limit(limit)
 
-    memos = query.all()
-    return memos
+    return query.all()
 
 
 @router.post("/", response_model=MemoResponse, status_code=status.HTTP_201_CREATED)
@@ -48,9 +43,6 @@ def create_memo(
     db: Session = Depends(get_db)
 ):
     """创建备忘录"""
-    if current_user.role not in ("teacher", "admin"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要教师或管理员权限")
-
     memo = Memo(
         teacher_id=current_user.id,
         title=req.title,
@@ -77,7 +69,7 @@ def update_memo(
     if not memo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="备忘录不存在")
 
-    if memo.teacher_id != current_user.id and current_user.role != "admin":
+    if memo.teacher_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权限操作此备忘录")
 
     if req.title is not None:
@@ -109,7 +101,7 @@ def delete_memo(
     if not memo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="备忘录不存在")
 
-    if memo.teacher_id != current_user.id and current_user.role != "admin":
+    if memo.teacher_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权限操作此备忘录")
 
     db.delete(memo)
@@ -128,7 +120,7 @@ def update_memo_status(
     if not memo:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="备忘录不存在")
 
-    if memo.teacher_id != current_user.id and current_user.role != "admin":
+    if memo.teacher_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权限操作此备忘录")
 
     memo.status = status_value

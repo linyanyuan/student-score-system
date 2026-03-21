@@ -3,7 +3,6 @@ import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import MainLayout from './components/MainLayout'
 import Login from './pages/Login'
-import Register from './pages/Register'
 import Home from './pages/Home'
 import ClassManage from './pages/ClassManage'
 import SubjectManage from './pages/SubjectManage'
@@ -12,6 +11,8 @@ import CustomFieldManage from './pages/CustomFieldManage'
 import StudentManage from './pages/StudentManage'
 import ExamManage from './pages/ExamManage'
 import ScoreManage from './pages/ScoreManage'
+import SchoolManage from './pages/SchoolManage'
+import AccountManage from './pages/AccountManage'
 
 export default function App() {
   return (
@@ -19,10 +20,11 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
           <Route element={<ProtectedRoute />}>
             <Route element={<MainLayout />}>
               <Route path="/" element={<Home />} />
+              <Route path="/schools" element={<SchoolManage />} />
+              <Route path="/accounts" element={<AccountManage />} />
               <Route path="/classes" element={<ClassManage />} />
               <Route path="/subjects" element={<SubjectManage />} />
               <Route path="/teacher-classes" element={<TeacherClassManage />} />

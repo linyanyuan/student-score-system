@@ -8,6 +8,7 @@ class CustomFieldCreate(BaseModel):
     field_type: str
     options: str | None = None
     sort_order: int = 0
+    school_id: int | None = None
 
     @field_validator("field_type")
     @classmethod

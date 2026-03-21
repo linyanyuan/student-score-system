@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class RoleEnum(str, Enum):
+    school_admin = "school_admin"
     teacher = "teacher"
     student = "student"
 
@@ -13,6 +14,7 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
     role: RoleEnum
+    school_id: int | None = None
 
     @field_validator("password")
     @classmethod
@@ -33,6 +35,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     role: str
+    school_id: int | None = None
     created_at: datetime
 
 

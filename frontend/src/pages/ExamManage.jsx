@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
-import { Table, Button, Modal, Form, Input, DatePicker, Space, message, Popconfirm } from 'antd'
+import { Table, Button, Modal, Form, Input, DatePicker, Select, Space, message, Popconfirm, Tag } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { getExams, createExam, updateExam, deleteExam } from '../api/exam'
+
+const GRADE_OPTIONS = ['七年级', '八年级', '九年级', '高一', '高二', '高三']
 
 export default function ExamManage() {
   const [data, setData] = useState([])
@@ -31,6 +33,7 @@ export default function ExamManage() {
       const payload = {
         ...values,
         exam_date: values.exam_date.format('YYYY-MM-DD'),
+        grade: Array.isArray(values.grade) ? values.grade.join(',') : values.grade,
       }
       if (editing) {
         await updateExam(editing.id, payload)
@@ -44,7 +47,8 @@ export default function ExamManage() {
       setEditing(null)
       fetchData()
     } catch (err) {
-      if (err.message) message.error(err.message)
+      if (err?.response?.data?.detail) message.error(err.response.data.detail)
+      else if (err.message) message.error(err.message)
     }
   }
 
@@ -61,7 +65,9 @@ export default function ExamManage() {
   const columns = [
     { title: '考试名称', dataIndex: 'name', key: 'name' },
     { title: '考试日期', dataIndex: 'exam_date', key: 'exam_date', width: 120 },
-    { title: '参与年级', dataIndex: 'grade', key: 'grade', width: 100 },
+    { title: '参与年级', dataIndex: 'grade', key: 'grade', width: 160,
+      render: (v) => v ? v.split(',').map(g => <Tag key={g}>{g}</Tag>) : '-',
+    },
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
     {
       title: '操作', key: 'action', width: 150,
@@ -69,7 +75,11 @@ export default function ExamManage() {
         <Space>
           <Button size="small" onClick={() => {
             setEditing(record)
-            form.setFieldsValue({ ...record, exam_date: dayjs(record.exam_date) })
+            form.setFieldsValue({
+              ...record,
+              exam_date: dayjs(record.exam_date),
+              grade: record.grade ? record.grade.split(',') : [],
+            })
             setModalOpen(true)
           }}>编辑</Button>
           <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
@@ -94,8 +104,10 @@ export default function ExamManage() {
           <Form.Item name="exam_date" label="考试日期" rules={[{ required: true, message: '请选择考试日期' }]}>
             <DatePicker style={{ width: '100%' }} />
           </Form.Item>
-          <Form.Item name="grade" label="参与年级" rules={[{ required: true, message: '请输入参与年级' }]}>
-            <Input placeholder="如：高三" />
+          <Form.Item name="grade" label="参与年级" rules={[{ required: true, message: '请选择参与年级' }]}>
+            <Select mode="multiple" placeholder="选择参与年级（可多选）" allowClear>
+              {GRADE_OPTIONS.map(g => <Select.Option key={g} value={g}>{g}</Select.Option>)}
+            </Select>
           </Form.Item>
           <Form.Item name="description" label="描述">
             <Input.TextArea rows={3} />

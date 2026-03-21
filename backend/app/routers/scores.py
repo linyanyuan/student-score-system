@@ -7,7 +7,7 @@ from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.dependencies import get_db, get_current_user, require_teacher_or_admin, get_accessible_class_ids
+from app.dependencies import get_db, get_current_user, require_teacher_or_admin, get_accessible_class_ids, get_user_school_id
 from app.models.score import Score
 from app.models.student import Student
 from app.models.class_ import Class
@@ -409,10 +409,14 @@ def batch_delete_scores_by_students(
 
 @router.get("/template")
 def download_score_template(
-    _: User = Depends(require_teacher_or_admin),
+    current_user: User = Depends(require_teacher_or_admin),
     db: Session = Depends(get_db),
 ):
-    subjects = _sort_subjects(db.query(Subject).all())
+    school_id = get_user_school_id(current_user)
+    subject_query = db.query(Subject)
+    if school_id is not None:
+        subject_query = subject_query.filter(Subject.school_id == school_id)
+    subjects = _sort_subjects(subject_query.all())
     wb = Workbook()
     ws = wb.active
     ws.title = "成绩导入模板"
@@ -446,7 +450,12 @@ def export_scores(
         raise HTTPException(status_code=404, detail="考试不存在")
 
     accessible = get_accessible_class_ids(current_user, db)
-    subjects = _sort_subjects(db.query(Subject).all())
+    school_id = get_user_school_id(current_user)
+
+    subject_query = db.query(Subject)
+    if school_id is not None:
+        subject_query = subject_query.filter(Subject.school_id == school_id)
+    subjects = _sort_subjects(subject_query.all())
     subject_map = {s.id: s.name for s in subjects}
     class_map = {c.id: c.name for c in db.query(Class).all()}
 
@@ -520,11 +529,15 @@ def import_scores(
     if not exam:
         raise HTTPException(status_code=400, detail="考试不存在")
 
-    # Build lookup maps
+    school_id = get_user_school_id(current_user)
+
+    # Build lookup maps - filter by school
     student_map = {s.student_no: s for s in db.query(Student).all()}
-    subject_map = {s.name: s for s in db.query(Subject).all()}
-    # Also match headers with "(必填)" suffix stripped
-    for s in db.query(Subject).all():
+    subject_query = db.query(Subject)
+    if school_id is not None:
+        subject_query = subject_query.filter(Subject.school_id == school_id)
+    subject_map = {s.name: s for s in subject_query.all()}
+    for s in subject_query.all():
         subject_map[s.name + "(必填)"] = s
 
     wb = load_workbook(file.file)
