@@ -4,6 +4,7 @@ from pydantic import BaseModel
 class ClassCreate(BaseModel):
     name: str
     grade: str
+    school_id: int | None = None
 
 
 class ClassUpdate(BaseModel):
@@ -17,3 +18,4 @@ class ClassResponse(BaseModel):
     id: int
     name: str
     grade: str
+    school_id: int | None = None

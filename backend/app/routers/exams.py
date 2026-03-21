@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_db, get_current_user, require_admin
+from app.dependencies import get_db, get_current_user, require_admin_or_school_admin, get_user_school_id
 from app.models.exam import Exam
 from app.models.score import Score
 from app.models.user import User
@@ -13,10 +13,13 @@ router = APIRouter(prefix="/api/exams", tags=["考试管理"])
 @router.get("", response_model=list[ExamResponse])
 def list_exams(
     grade: str | None = None,
-    _: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     query = db.query(Exam)
+    school_id = get_user_school_id(current_user)
+    if school_id is not None:
+        query = query.filter(Exam.school_id == school_id)
     if grade:
         query = query.filter(Exam.grade == grade)
     return query.order_by(Exam.exam_date.desc()).all()
@@ -25,10 +28,18 @@ def list_exams(
 @router.post("", response_model=ExamResponse, status_code=status.HTTP_201_CREATED)
 def create_exam(
     req: ExamCreate,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_school_admin),
     db: Session = Depends(get_db),
 ):
-    obj = Exam(name=req.name, exam_date=req.exam_date, grade=req.grade, description=req.description)
+    school_id = get_user_school_id(current_user)
+    filter_school_id = school_id if school_id is not None else req.school_id
+    obj = Exam(
+        name=req.name,
+        exam_date=req.exam_date,
+        grade=req.grade,
+        description=req.description,
+        school_id=filter_school_id,
+    )
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -39,10 +50,14 @@ def create_exam(
 def update_exam(
     exam_id: int,
     req: ExamUpdate,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_school_admin),
     db: Session = Depends(get_db),
 ):
-    obj = db.query(Exam).filter(Exam.id == exam_id).first()
+    school_id = get_user_school_id(current_user)
+    query = db.query(Exam).filter(Exam.id == exam_id)
+    if school_id is not None:
+        query = query.filter(Exam.school_id == school_id)
+    obj = query.first()
     if not obj:
         raise HTTPException(status_code=404, detail="考试不存在")
     if req.name is not None:
@@ -61,10 +76,14 @@ def update_exam(
 @router.delete("/{exam_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_exam(
     exam_id: int,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_school_admin),
     db: Session = Depends(get_db),
 ):
-    obj = db.query(Exam).filter(Exam.id == exam_id).first()
+    school_id = get_user_school_id(current_user)
+    query = db.query(Exam).filter(Exam.id == exam_id)
+    if school_id is not None:
+        query = query.filter(Exam.school_id == school_id)
+    obj = query.first()
     if not obj:
         raise HTTPException(status_code=404, detail="考试不存在")
     has_scores = db.query(Score).filter(Score.exam_id == exam_id).first()

@@ -1,3 +1,4 @@
+from app.models.school import School
 from app.models.user import User
 from app.models.class_ import Class
 from app.models.subject import Subject
@@ -13,7 +14,7 @@ from app.models.memo import Memo
 from app.models.daily_quote import DailyQuote
 
 __all__ = [
-    "User", "Class", "Subject", "TeacherClass", "CustomFieldDefinition",
+    "School", "User", "Class", "Subject", "TeacherClass", "CustomFieldDefinition",
     "Student", "Exam", "Score", "TotalRank",
     "SchedulePeriod", "TeacherSchedule", "Memo", "DailyQuote",
 ]

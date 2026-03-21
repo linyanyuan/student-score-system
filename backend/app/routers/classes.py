@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_db, get_current_user, require_admin
+from app.dependencies import get_db, get_current_user, require_admin_or_school_admin, get_user_school_id
 from app.models.class_ import Class
 from app.models.student import Student
 from app.models.user import User
@@ -15,6 +15,7 @@ def list_classes(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    query = db.query(Class)
     if current_user.role == "teacher":
         from app.models.teacher_class import TeacherClass
         class_ids = db.query(TeacherClass.class_id).filter(
@@ -22,19 +23,27 @@ def list_classes(
         ).all()
         ids = [r[0] for r in class_ids]
         return db.query(Class).filter(Class.id.in_(ids)).all()
-    return db.query(Class).all()
+    school_id = get_user_school_id(current_user)
+    if school_id is not None:
+        query = query.filter(Class.school_id == school_id)
+    return query.all()
 
 
 @router.post("", response_model=ClassResponse, status_code=status.HTTP_201_CREATED)
 def create_class(
     req: ClassCreate,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_school_admin),
     db: Session = Depends(get_db),
 ):
-    existing = db.query(Class).filter(Class.name == req.name).first()
+    school_id = get_user_school_id(current_user)
+    filter_school_id = school_id if school_id is not None else req.school_id
+    existing = db.query(Class).filter(
+        Class.name == req.name,
+        Class.school_id == filter_school_id,
+    ).first()
     if existing:
         raise HTTPException(status_code=400, detail="班级名称已存在")
-    obj = Class(name=req.name, grade=req.grade)
+    obj = Class(name=req.name, grade=req.grade, school_id=filter_school_id)
     db.add(obj)
     db.commit()
     db.refresh(obj)
@@ -45,14 +54,22 @@ def create_class(
 def update_class(
     class_id: int,
     req: ClassUpdate,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_school_admin),
     db: Session = Depends(get_db),
 ):
-    obj = db.query(Class).filter(Class.id == class_id).first()
+    school_id = get_user_school_id(current_user)
+    query = db.query(Class).filter(Class.id == class_id)
+    if school_id is not None:
+        query = query.filter(Class.school_id == school_id)
+    obj = query.first()
     if not obj:
         raise HTTPException(status_code=404, detail="班级不存在")
     if req.name is not None:
-        dup = db.query(Class).filter(Class.name == req.name, Class.id != class_id).first()
+        dup = db.query(Class).filter(
+            Class.name == req.name,
+            Class.school_id == obj.school_id,
+            Class.id != class_id,
+        ).first()
         if dup:
             raise HTTPException(status_code=400, detail="班级名称已存在")
         obj.name = req.name
@@ -66,10 +83,14 @@ def update_class(
 @router.delete("/{class_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_class(
     class_id: int,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_admin_or_school_admin),
     db: Session = Depends(get_db),
 ):
-    obj = db.query(Class).filter(Class.id == class_id).first()
+    school_id = get_user_school_id(current_user)
+    query = db.query(Class).filter(Class.id == class_id)
+    if school_id is not None:
+        query = query.filter(Class.school_id == school_id)
+    obj = query.first()
     if not obj:
         raise HTTPException(status_code=404, detail="班级不存在")
     has_students = db.query(Student).filter(Student.class_id == class_id).first()

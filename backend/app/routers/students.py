@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook, load_workbook
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_db, require_teacher_or_admin, get_accessible_class_ids
+from app.dependencies import get_db, require_teacher_or_admin, get_accessible_class_ids, get_user_school_id
 from app.models.student import Student
 from app.models.class_ import Class
 from app.models.custom_field import CustomFieldDefinition
@@ -53,14 +53,18 @@ def list_students(
 
 @router.get("/template")
 def download_template(
-    _: User = Depends(require_teacher_or_admin),
+    current_user: User = Depends(require_teacher_or_admin),
     db: Session = Depends(get_db),
 ):
+    school_id = get_user_school_id(current_user)
+    query = db.query(CustomFieldDefinition)
+    if school_id is not None:
+        query = query.filter(CustomFieldDefinition.school_id == school_id)
     wb = Workbook()
     ws = wb.active
     ws.title = "学生导入模板"
     headers = ["学号", "班级名称", "姓名", "性别(男/女)", "出生日期(YYYY-MM-DD)", "联系方式"]
-    custom_fields = db.query(CustomFieldDefinition).order_by(CustomFieldDefinition.sort_order).all()
+    custom_fields = query.order_by(CustomFieldDefinition.sort_order).all()
     for cf in custom_fields:
         headers.append(cf.field_name)
     ws.append(headers)
@@ -82,6 +86,7 @@ def export_students(
     db: Session = Depends(get_db),
 ):
     accessible = get_accessible_class_ids(current_user, db)
+    school_id = get_user_school_id(current_user)
     query = db.query(Student)
     if accessible is not None:
         query = query.filter(Student.class_id.in_(accessible))
@@ -90,7 +95,10 @@ def export_students(
 
     students = query.all()
     classes = {c.id: c.name for c in db.query(Class).all()}
-    custom_fields = db.query(CustomFieldDefinition).order_by(CustomFieldDefinition.sort_order).all()
+    cf_query = db.query(CustomFieldDefinition)
+    if school_id is not None:
+        cf_query = cf_query.filter(CustomFieldDefinition.school_id == school_id)
+    custom_fields = cf_query.order_by(CustomFieldDefinition.sort_order).all()
 
     wb = Workbook()
     ws = wb.active
@@ -136,8 +144,8 @@ def import_students(
         raise HTTPException(status_code=400, detail="请上传 Excel 文件")
 
     accessible = get_accessible_class_ids(current_user, db)
+    school_id = get_user_school_id(current_user)
 
-    # Validate class_id if provided
     if class_id is not None:
         cls = db.query(Class).filter(Class.id == class_id).first()
         if not cls:
@@ -145,8 +153,16 @@ def import_students(
         if accessible is not None and class_id not in accessible:
             raise HTTPException(status_code=403, detail="无权导入到该班级")
 
-    classes = {c.name: c.id for c in db.query(Class).all()}
-    custom_fields = db.query(CustomFieldDefinition).order_by(CustomFieldDefinition.sort_order).all()
+    # 按学校过滤班级列表
+    class_query = db.query(Class)
+    if school_id is not None:
+        class_query = class_query.filter(Class.school_id == school_id)
+    classes = {c.name: c.id for c in class_query.all()}
+
+    cf_query = db.query(CustomFieldDefinition)
+    if school_id is not None:
+        cf_query = cf_query.filter(CustomFieldDefinition.school_id == school_id)
+    custom_fields = cf_query.order_by(CustomFieldDefinition.sort_order).all()
     cf_names = [cf.field_name for cf in custom_fields]
 
     wb = load_workbook(file.file)
@@ -171,14 +187,12 @@ def import_students(
                 errors.append({"row": idx, "error": "姓名不能为空"})
                 continue
 
-            # Convert 男/女 to M/F
             gender_map = {"男": "M", "女": "F", "M": "M", "F": "F"}
             gender = gender_map.get(gender_raw)
             if not gender:
                 errors.append({"row": idx, "error": "性别必须为 男 或 女"})
                 continue
 
-            # Determine class_id: use provided class_id or lookup from Excel
             if class_id is not None:
                 target_class_id = class_id
             else:

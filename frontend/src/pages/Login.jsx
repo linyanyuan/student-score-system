@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Form, Input, Button, Card, message, Typography } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { useAuth } from '../contexts/AuthContext'
@@ -62,9 +62,6 @@ export default function Login() {
             </Button>
           </Form.Item>
         </Form>
-        <div style={{ textAlign: 'center' }}>
-          没有账号？<Link to="/register">去注册</Link>
-        </div>
       </Card>
     </div>
   )
