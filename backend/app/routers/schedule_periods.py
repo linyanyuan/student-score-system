@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.dependencies import get_db, require_admin
+from app.dependencies import get_db, require_school_admin
 from app.models.schedule_period import SchedulePeriod
 from app.schemas.schedule import SchedulePeriodCreate, SchedulePeriodUpdate, SchedulePeriodResponse
 
@@ -19,7 +19,7 @@ def get_schedule_periods(db: Session = Depends(get_db)):
 def create_schedule_period(
     req: SchedulePeriodCreate,
     db: Session = Depends(get_db),
-    _: None = Depends(require_admin)
+    _: None = Depends(require_school_admin)
 ):
     """创建节次（仅管理员）"""
     period = SchedulePeriod(
@@ -39,7 +39,7 @@ def update_schedule_period(
     period_id: int,
     req: SchedulePeriodUpdate,
     db: Session = Depends(get_db),
-    _: None = Depends(require_admin)
+    _: None = Depends(require_school_admin)
 ):
     """更新节次（仅管理员）"""
     period = db.query(SchedulePeriod).filter(SchedulePeriod.id == period_id).first()
@@ -66,7 +66,7 @@ def update_schedule_period(
 def delete_schedule_period(
     period_id: int,
     db: Session = Depends(get_db),
-    _: None = Depends(require_admin)
+    _: None = Depends(require_school_admin)
 ):
     """删除节次（仅管理员）"""
     from app.models.teacher_schedule import TeacherSchedule

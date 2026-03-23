@@ -61,6 +61,15 @@ def require_admin_or_school_admin(current_user: User = Depends(get_current_user)
     return current_user
 
 
+def require_school_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "school_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="闇€瑕佸鏍＄鐞嗗憳鏉冮檺",
+        )
+    return current_user
+
+
 def require_teacher_or_above(current_user: User = Depends(get_current_user)) -> User:
     if current_user.role not in ("admin", "school_admin", "teacher"):
         raise HTTPException(

@@ -29,7 +29,8 @@ export default function Home() {
   const [periodForm] = Form.useForm()
 
   const roleLabel = user?.role === 'admin' ? '管理员' : user?.role === 'school_admin' ? '学校管理员' : user?.role === 'teacher' ? '教师' : '学生'
-  const isTeacherOrAdmin = user?.role === 'teacher' || user?.role === 'admin' || user?.role === 'school_admin'
+  const showScheduleSection = ['school_admin', 'teacher', 'student'].includes(user?.role)
+  const canLoadScheduleEditorMeta = user?.role === 'teacher'
 
   useEffect(() => {
     loadData()
@@ -51,8 +52,7 @@ export default function Home() {
     } catch (error) {
       console.error('加载备忘录失败:', error)
     }
-
-    if (isTeacherOrAdmin) {
+    if (showScheduleSection) {
       // 加载课表
       try {
         const scheduleRes = await getMySchedule()
@@ -68,7 +68,9 @@ export default function Home() {
       } catch (error) {
         console.error('加载节次失败:', error)
       }
+    }
 
+    if (canLoadScheduleEditorMeta) {
       // 加载班级和科目
       try {
         const classesRes = await getClasses()
@@ -351,7 +353,7 @@ export default function Home() {
 
       <Row gutter={24}>
         {/* 课表区域 - 仅 school_admin / teacher / student 可见 */}
-        {isTeacherOrAdmin && (
+        {showScheduleSection && (
           <Col xs={24} lg={14}>
             <Card
               title="本周课表"
@@ -383,7 +385,7 @@ export default function Home() {
         )}
 
         {/* 备忘录区域 - 所有角色可见 */}
-        <Col xs={24} lg={isTeacherOrAdmin ? 10 : 24}>
+        <Col xs={24} lg={showScheduleSection ? 10 : 24}>
           <Card
             title="备忘录"
             extra={
