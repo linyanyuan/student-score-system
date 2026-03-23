@@ -34,3 +34,7 @@ dist/
 # Environment
 .env
 .env.local
+__pycache__/
+*.pyc
+*.db
+.claude/

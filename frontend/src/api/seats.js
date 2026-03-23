@@ -1,18 +1,18 @@
-import api from './axios'
+import request from './request'
 
 export const seatApi = {
   // 获取班级座位表
   getSeatArrangement: (classId) => {
-    return api.get(`/seats/${classId}`)
+    return request.get(`/api/seats/${classId}`)
   },
 
   // 保存座位表
   saveSeatArrangement: (classId, data) => {
-    return api.post(`/seats/${classId}`, data)
+    return request.post(`/api/seats/${classId}`, data)
   },
 
   // 删除座位表
   deleteSeatArrangement: (classId) => {
-    return api.delete(`/seats/${classId}`)
+    return request.delete(`/api/seats/${classId}`)
   }
 }
