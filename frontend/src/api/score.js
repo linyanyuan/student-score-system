@@ -9,10 +9,10 @@ export const deleteScoreByStudent = (examId, studentId) =>
   request.delete('/api/scores/by-student', { params: { exam_id: examId, student_id: studentId } })
 export const batchDeleteScoresByStudents = (examId, studentIds) =>
   request.post('/api/scores/batch-by-students/delete', { exam_id: examId, student_ids: studentIds })
-export const importScores = (file, examId) => {
+export const importScores = (file, examId, grade) => {
   const formData = new FormData()
   formData.append('file', file)
-  return request.post(`/api/scores/import?exam_id=${examId}`, formData)
+  return request.post(`/api/scores/import?exam_id=${examId}&grade=${encodeURIComponent(grade)}`, formData)
 }
 export const exportScores = (params) =>
   request.get('/api/scores/export', { params, responseType: 'blob' })

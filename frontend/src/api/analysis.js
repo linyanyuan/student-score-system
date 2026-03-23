@@ -17,6 +17,9 @@ export const getStudentSubjectComparison = (studentId, examId) =>
 export const getClassesRank = (examId, subjectId) =>
   request.get('/api/analysis/classes/rank', { params: { exam_id: examId, subject_id: subjectId } })
 
+export const getExamSubjectThreeRatesOneScoreRank = (examId, subjectId) =>
+  request.get(`/api/analysis/exam/${examId}/subject/${subjectId}/three-rates-one-score-rank`)
+
 export const getClassDistribution = (classId, examId) =>
   request.get(`/api/analysis/class/${classId}/exam/${examId}/distribution`)
 

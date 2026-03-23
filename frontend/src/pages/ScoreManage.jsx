@@ -15,7 +15,17 @@ import { useAuth } from '../contexts/AuthContext'
 import StudentAnalysis from './StudentAnalysis'
 import ClassAnalysis from './ClassAnalysis'
 
-const SUBJECT_DISPLAY_ORDER = ['语文', '数学', '英语', '物理', '生物', '历史', '地理', '道法']
+const SUBJECT_DISPLAY_ORDER = ['语文', '数学', '英语', '物理', '生物', '历史', '地理', '道法', '政治', '化学']
+
+const parseExamGrades = (gradeText) => {
+  if (!gradeText) return []
+  return gradeText
+    .replaceAll('，', ',')
+    .replaceAll('、', ',')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
 
 export default function ScoreManage() {
   const { user } = useAuth()
@@ -27,6 +37,7 @@ export default function ScoreManage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [selectedExam, setSelectedExam] = useState(null)
+  const [selectedImportGrade, setSelectedImportGrade] = useState(null)
   const [selectedClass, setSelectedClass] = useState(null)
   const [searchStudentNo, setSearchStudentNo] = useState('')
   const [searchStudentName, setSearchStudentName] = useState('')
@@ -175,8 +186,12 @@ export default function ScoreManage() {
       message.warning('请先选择考试')
       return false
     }
+    if (!selectedImportGrade) {
+      message.warning('请先选择导入年级')
+      return false
+    }
     try {
-      const res = await importScores(file, selectedExam)
+      const res = await importScores(file, selectedExam, selectedImportGrade)
       setImportResult(res.data)
       setImportModalOpen(true)
       fetchData()
@@ -270,7 +285,7 @@ export default function ScoreManage() {
             icon={<BarChartOutlined />}
             onClick={() => handleAnalyzeStudent(record.student_id)}
           >分析</Button>
-          {isTeacherOrAdmin && (
+          {canManageScores && (
             <>
               <Button
                 size="small"
@@ -290,8 +305,9 @@ export default function ScoreManage() {
     },
   ]
 
-  const isTeacherOrAdmin = user?.role === 'admin' || user?.role === 'teacher'
-
+  const canManageScores = ['admin', 'school_admin', 'teacher'].includes(user?.role)
+  const selectedExamInfo = exams.find((exam) => exam.id === selectedExam)
+  const importGradeOptions = parseExamGrades(selectedExamInfo?.grade)
   const scoreListContent = (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
@@ -300,11 +316,27 @@ export default function ScoreManage() {
             style={{ width: 250 }}
             placeholder="选择考试（必选）"
             value={selectedExam}
-            onChange={(v) => { setSelectedExam(v); setPage(1); setSelectedRowKeys([]) }}
+            onChange={(v) => {
+              setSelectedExam(v)
+              setSelectedImportGrade(null)
+              setPage(1)
+              setSelectedRowKeys([])
+            }}
             options={exams.map((e) => ({ label: `${e.name} (${e.exam_date})`, value: e.id }))}
             showSearch
             optionFilterProp="label"
           />
+          {canManageScores && (
+            <Select
+              style={{ width: 160 }}
+              placeholder="导入年级"
+              allowClear
+              value={selectedImportGrade}
+              disabled={!selectedExam}
+              onChange={setSelectedImportGrade}
+              options={importGradeOptions.map((grade) => ({ label: grade, value: grade }))}
+            />
+          )}
           <Select
             style={{ width: 150 }}
             placeholder="班级筛选"
@@ -331,7 +363,7 @@ export default function ScoreManage() {
           />
           <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} disabled={!selectedExam}>查询</Button>
         </Space>
-        {isTeacherOrAdmin && (
+        {canManageScores && (
           <Space wrap>
             <Button type="primary" icon={<PlusOutlined />} onClick={openAddModal} disabled={!selectedExam}>录入成绩</Button>
             <Upload accept=".xlsx,.xls" showUploadList={false} beforeUpload={handleImport}>
@@ -357,7 +389,7 @@ export default function ScoreManage() {
         rowKey="student_id"
         loading={loading}
         scroll={{ x: 'max-content' }}
-        rowSelection={isTeacherOrAdmin ? {
+        rowSelection={canManageScores ? {
           selectedRowKeys,
           onChange: setSelectedRowKeys,
         } : undefined}

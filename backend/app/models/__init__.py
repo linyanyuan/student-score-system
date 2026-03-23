@@ -13,9 +13,11 @@ from app.models.teacher_schedule import TeacherSchedule
 from app.models.memo import Memo
 from app.models.daily_quote import DailyQuote
 from app.models.seat_arrangement import SeatArrangement
+from app.models.score_full_score_config import ScoreFullScoreConfig
 
 __all__ = [
     "School", "User", "Class", "Subject", "TeacherClass", "CustomFieldDefinition",
     "Student", "Exam", "Score", "TotalRank",
     "SchedulePeriod", "TeacherSchedule", "Memo", "DailyQuote", "SeatArrangement",
+    "ScoreFullScoreConfig",
 ]

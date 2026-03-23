@@ -14,6 +14,14 @@ import {
 
 const { Text } = Typography
 
+const parseExamGrades = (gradeValue) => {
+  if (!gradeValue) return []
+  return String(gradeValue)
+    .split(/[，,、]/)
+    .map((g) => g.trim())
+    .filter(Boolean)
+}
+
 export default function StudentAnalysis({ initialStudentId, examId: initialExamId }) {
   const [students, setStudents] = useState([])
   const [subjects, setSubjects] = useState([])
@@ -64,7 +72,9 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
 
   // Filter exams by student's grade, sorted by date descending
   const filteredExams = studentGrade
-    ? exams.filter((e) => e.grade === studentGrade).sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
+    ? exams
+        .filter((e) => parseExamGrades(e.grade).includes(studentGrade))
+        .sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
     : exams.sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
 
   // Auto-select most recent exam when student changes
@@ -126,7 +136,6 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
         setSubjectTrend([])
       })
   }, [studentId, subjectId])
-
   // Chart configs
   const totalTrendConfig = {
     data: totalTrend,

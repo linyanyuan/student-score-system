@@ -194,7 +194,21 @@ export default function Home() {
     setPeriodModalVisible(true)
   }
 
+  const handleManagePeriods = () => {
+    if (periods.length > 0) {
+      handleEditPeriod(periods[0])
+      return
+    }
+    setEditingPeriod(null)
+    periodForm.resetFields()
+    setPeriodModalVisible(true)
+  }
+
   const handlePeriodSubmit = async () => {
+    if (!editingPeriod) {
+      message.warning('当前无可编辑节次')
+      return
+    }
     try {
       const values = await periodForm.validateFields()
       const newStartTime = values.start_time.format('HH:mm')
@@ -361,11 +375,7 @@ export default function Home() {
                 user?.role === 'school_admin' && (
                   <Button
                     icon={<SettingOutlined />}
-                    onClick={() => {
-                      if (periods.length > 0) {
-                        handleEditPeriod(periods[0])
-                      }
-                    }}
+                    onClick={handleManagePeriods}
                   >
                     节次管理
                   </Button>
@@ -492,12 +502,18 @@ export default function Home() {
 
       {/* 节次编辑弹窗 */}
       <Modal
-        title="编辑节次时间"
+        title={periods.length > 0 ? '编辑节次时间' : '节次管理'}
         open={periodModalVisible}
         onOk={handlePeriodSubmit}
         onCancel={() => setPeriodModalVisible(false)}
+        footer={periods.length === 0 ? [<Button key="close" onClick={() => setPeriodModalVisible(false)}>关闭</Button>] : undefined}
         width={600}
       >
+        {periods.length === 0 && (
+          <div style={{ marginBottom: 12, padding: 12, background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 4, color: '#ad4e00' }}>
+            当前暂无节次数据，请先补充节次信息后再进行编辑。
+          </div>
+        )}
         <Form form={periodForm} layout="vertical">
           <Form.Item name="name" label="节次名称" rules={[{ required: true, message: '请输入节次名称' }]}>
             <Input disabled />
