@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
-from app.dependencies import get_db, get_current_user, get_accessible_class_ids
+from app.dependencies import get_db, get_current_user, get_accessible_class_ids, get_user_school_id
 from app.models.score import Score
 from app.models.student import Student
 from app.models.class_ import Class
@@ -255,8 +255,12 @@ def classes_rank(
     db: Session = Depends(get_db),
 ):
     accessible = get_accessible_class_ids(current_user, db)
+    school_id = get_user_school_id(current_user)
 
-    classes = db.query(Class).all()
+    query = db.query(Class)
+    if school_id is not None:
+        query = query.filter(Class.school_id == school_id)
+    classes = query.all()
     if accessible is not None:
         classes = [c for c in classes if c.id in accessible]
 

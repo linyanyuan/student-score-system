@@ -52,8 +52,35 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
     return current_user
 
 
+def require_admin_or_school_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in ("admin", "school_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员或学校管理员权限",
+        )
+    return current_user
+
+
+def require_school_admin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "school_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="闇€瑕佸鏍＄鐞嗗憳鏉冮檺",
+        )
+    return current_user
+
+
+def require_teacher_or_above(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in ("admin", "school_admin", "teacher"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要教师或以上权限",
+        )
+    return current_user
+
+
 def require_teacher_or_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role not in ("admin", "teacher"):
+    if current_user.role not in ("admin", "school_admin", "teacher"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="需要教师或管理员权限",
@@ -61,10 +88,21 @@ def require_teacher_or_admin(current_user: User = Depends(get_current_user)) -> 
     return current_user
 
 
+def get_user_school_id(current_user: User) -> int | None:
+    """Return school_id for non-admin users, None for admin (no filter)."""
+    if current_user.role == "admin":
+        return None
+    return current_user.school_id
+
+
 def get_accessible_class_ids(current_user: User, db: Session) -> list[int] | None:
     """Return list of class IDs accessible to the user, or None if all accessible (admin)."""
     if current_user.role == "admin":
         return None
+    if current_user.role == "school_admin":
+        from app.models.class_ import Class
+        rows = db.query(Class.id).filter(Class.school_id == current_user.school_id).all()
+        return [r[0] for r in rows]
     from app.models.teacher_class import TeacherClass
     rows = db.query(TeacherClass.class_id).filter(TeacherClass.teacher_id == current_user.id).all()
     return [r[0] for r in rows]

@@ -9,6 +9,7 @@ class ExamCreate(BaseModel):
     exam_date: date
     grade: str
     description: Optional[str] = None
+    school_id: Optional[int] = None
 
 
 class ExamUpdate(BaseModel):

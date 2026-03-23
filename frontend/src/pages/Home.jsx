@@ -28,8 +28,9 @@ export default function Home() {
   const [scheduleForm] = Form.useForm()
   const [periodForm] = Form.useForm()
 
-  const roleLabel = user?.role === 'admin' ? '管理员' : user?.role === 'teacher' ? '教师' : '学生'
-  const isTeacherOrAdmin = user?.role === 'teacher' || user?.role === 'admin'
+  const roleLabel = user?.role === 'admin' ? '管理员' : user?.role === 'school_admin' ? '学校管理员' : user?.role === 'teacher' ? '教师' : '学生'
+  const showScheduleSection = ['school_admin', 'teacher', 'student'].includes(user?.role)
+  const canLoadScheduleEditorMeta = user?.role === 'teacher'
 
   useEffect(() => {
     loadData()
@@ -44,7 +45,14 @@ export default function Home() {
       console.error('加载每日语句失败:', error)
     }
 
-    if (isTeacherOrAdmin) {
+    // 加载备忘录 - 所有角色
+    try {
+      const memosRes = await getMemos({ status: 'pending', limit: 5 })
+      setMemos(memosRes.data)
+    } catch (error) {
+      console.error('加载备忘录失败:', error)
+    }
+    if (showScheduleSection) {
       // 加载课表
       try {
         const scheduleRes = await getMySchedule()
@@ -60,15 +68,9 @@ export default function Home() {
       } catch (error) {
         console.error('加载节次失败:', error)
       }
+    }
 
-      // 加载备忘录
-      try {
-        const memosRes = await getMemos({ status: 'pending', limit: 5 })
-        setMemos(memosRes.data)
-      } catch (error) {
-        console.error('加载备忘录失败:', error)
-      }
-
+    if (canLoadScheduleEditorMeta) {
       // 加载班级和科目
       try {
         const classesRes = await getClasses()
@@ -301,28 +303,31 @@ export default function Home() {
       key: `day${index + 1}`,
       render: (item, record) => {
         const periodId = periods.find(p => p.name === record.period)?.id
+        const canEditSchedule = user?.role === 'teacher'
         return (
           <div
-            style={{ cursor: 'pointer', minHeight: 40, padding: 4 }}
-            onClick={() => handleEditSchedule(periodId, index + 1)}
+            style={{ cursor: canEditSchedule ? 'pointer' : 'default', minHeight: 40, padding: 4 }}
+            onClick={() => canEditSchedule && handleEditSchedule(periodId, index + 1)}
           >
             {item ? (
               <div>
                 <div>{item.class_name}-{item.subject_name}</div>
-                <Button
-                  type="link"
-                  size="small"
-                  danger
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleDeleteSchedule(item.id)
-                  }}
-                >
-                  删除
-                </Button>
+                {canEditSchedule && (
+                  <Button
+                    type="link"
+                    size="small"
+                    danger
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDeleteSchedule(item.id)
+                    }}
+                  >
+                    删除
+                  </Button>
+                )}
               </div>
             ) : (
-              <div style={{ color: '#999' }}>点击添加</div>
+              <div style={{ color: '#999' }}>{canEditSchedule ? '点击添加' : ''}</div>
             )}
           </div>
         )
@@ -346,21 +351,14 @@ export default function Home() {
         </Card>
       )}
 
-      {!isTeacherOrAdmin && (
-        <div style={{ textAlign: 'center', paddingTop: 60 }}>
-          <Title level={2}>欢迎, {user?.username}</Title>
-          <p>角色: {roleLabel}</p>
-        </div>
-      )}
-
-      {isTeacherOrAdmin && (
-        <Row gutter={24}>
-          {/* 课表区域 */}
+      <Row gutter={24}>
+        {/* 课表区域 - 仅 school_admin / teacher / student 可见 */}
+        {showScheduleSection && (
           <Col xs={24} lg={14}>
             <Card
               title="本周课表"
               extra={
-                user?.role === 'admin' && (
+                user?.role === 'school_admin' && (
                   <Button
                     icon={<SettingOutlined />}
                     onClick={() => {
@@ -384,58 +382,58 @@ export default function Home() {
               />
             </Card>
           </Col>
+        )}
 
-          {/* 备忘录区域 */}
-          <Col xs={24} lg={10}>
-            <Card
-              title="备忘录"
-              extra={
-                <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateMemo}>
-                  新建
-                </Button>
-              }
-              style={{ marginBottom: 24 }}
-            >
-              {memos.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
-                  暂无待办事项
-                </div>
-              ) : (
-                memos.map(memo => (
-                  <Card
-                    key={memo.id}
-                    size="small"
-                    style={{ marginBottom: 12 }}
-                    actions={[
-                      <EditOutlined key="edit" onClick={() => handleEditMemo(memo)} />,
-                      <DeleteOutlined key="delete" onClick={() => handleDeleteMemo(memo.id)} />
-                    ]}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-                      <Checkbox
-                        checked={memo.status === 'completed'}
-                        onChange={() => handleToggleMemoStatus(memo)}
-                      />
-                      <span style={{ marginLeft: 8, flex: 1, textDecoration: memo.status === 'completed' ? 'line-through' : 'none' }}>
-                        {memo.title}
-                      </span>
-                      <Tag color={getPriorityColor(memo.priority)}>{getPriorityLabel(memo.priority)}</Tag>
+        {/* 备忘录区域 - 所有角色可见 */}
+        <Col xs={24} lg={showScheduleSection ? 10 : 24}>
+          <Card
+            title="备忘录"
+            extra={
+              <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateMemo}>
+                新建
+              </Button>
+            }
+            style={{ marginBottom: 24 }}
+          >
+            {memos.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
+                暂无待办事项
+              </div>
+            ) : (
+              memos.map(memo => (
+                <Card
+                  key={memo.id}
+                  size="small"
+                  style={{ marginBottom: 12 }}
+                  actions={[
+                    <EditOutlined key="edit" onClick={() => handleEditMemo(memo)} />,
+                    <DeleteOutlined key="delete" onClick={() => handleDeleteMemo(memo.id)} />
+                  ]}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                    <Checkbox
+                      checked={memo.status === 'completed'}
+                      onChange={() => handleToggleMemoStatus(memo)}
+                    />
+                    <span style={{ marginLeft: 8, flex: 1, textDecoration: memo.status === 'completed' ? 'line-through' : 'none' }}>
+                      {memo.title}
+                    </span>
+                    <Tag color={getPriorityColor(memo.priority)}>{getPriorityLabel(memo.priority)}</Tag>
+                  </div>
+                  {memo.description && (
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{memo.description}</div>
+                  )}
+                  {memo.due_date && (
+                    <div style={{ fontSize: 12, color: dayjs(memo.due_date).isBefore(dayjs()) ? 'red' : '#999' }}>
+                      截止: {memo.due_date}
                     </div>
-                    {memo.description && (
-                      <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{memo.description}</div>
-                    )}
-                    {memo.due_date && (
-                      <div style={{ fontSize: 12, color: dayjs(memo.due_date).isBefore(dayjs()) ? 'red' : '#999' }}>
-                        截止: {memo.due_date}
-                      </div>
-                    )}
-                  </Card>
-                ))
-              )}
-            </Card>
-          </Col>
-        </Row>
-      )}
+                  )}
+                </Card>
+              ))
+            )}
+          </Card>
+        </Col>
+      </Row>
 
       {/* 备忘录编辑弹窗 */}
       <Modal
