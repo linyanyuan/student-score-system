@@ -38,3 +38,6 @@ __pycache__/
 *.pyc
 *.db
 .claude/
+__pycache__/
+*.pyc
+*.db
