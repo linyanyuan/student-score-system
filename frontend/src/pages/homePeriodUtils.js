@@ -1,4 +1,4 @@
-export const isCreatingFirstPeriod = (periods, editingPeriod) => periods.length === 0 && !editingPeriod;
+export const isCreatingPeriod = (editingPeriod) => !editingPeriod;
 
 export const buildSchedulePeriodPayload = (values) => ({
   name: values.name,

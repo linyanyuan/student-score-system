@@ -306,6 +306,7 @@ export default function ScoreManage() {
   ]
 
   const canManageScores = ['admin', 'school_admin', 'teacher'].includes(user?.role)
+  const canViewClassAnalysis = user?.role !== 'student'
   const selectedExamInfo = exams.find((exam) => exam.id === selectedExam)
   const importGradeOptions = parseExamGrades(selectedExamInfo?.grade)
   const scoreListContent = (
@@ -465,29 +466,34 @@ export default function ScoreManage() {
     </>
   )
 
+  const tabItems = [
+    { key: 'list', label: '成绩列表', children: scoreListContent },
+    {
+      key: 'student-analysis',
+      label: '学生成绩分析',
+      children: (
+        <StudentAnalysis
+          initialStudentId={analysisStudentId}
+          examId={selectedExam}
+        />
+      ),
+    },
+  ]
+
+  if (canViewClassAnalysis) {
+    tabItems.push({
+      key: 'class-analysis',
+      label: '班级成绩分析',
+      children: <ClassAnalysis examId={selectedExam} />,
+    })
+  }
+
   return (
     <Tabs
       activeKey={activeTab}
       onChange={setActiveTab}
       destroyInactiveTabPane
-      items={[
-        { key: 'list', label: '成绩列表', children: scoreListContent },
-        {
-          key: 'student-analysis',
-          label: '学生成绩分析',
-          children: (
-            <StudentAnalysis
-              initialStudentId={analysisStudentId}
-              examId={selectedExam}
-            />
-          ),
-        },
-        {
-          key: 'class-analysis',
-          label: '班级成绩分析',
-          children: <ClassAnalysis examId={selectedExam} />,
-        },
-      ]}
+      items={tabItems}
     />
   )
 }

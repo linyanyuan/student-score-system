@@ -5,6 +5,7 @@ import { getStudents } from '../api/student'
 import { getSubjects } from '../api/subject'
 import { getExams } from '../api/exam'
 import { getClasses } from '../api/class'
+import { useAuth } from '../contexts/AuthContext'
 import {
   getStudentTotalTrend,
   getStudentSubjectTrend,
@@ -23,11 +24,13 @@ const parseExamGrades = (gradeValue) => {
 }
 
 export default function StudentAnalysis({ initialStudentId, examId: initialExamId }) {
+  const { user } = useAuth()
+  const isStudentRole = user?.role === 'student'
   const [students, setStudents] = useState([])
   const [subjects, setSubjects] = useState([])
   const [exams, setExams] = useState([])
   const [classes, setClasses] = useState([])
-  const [studentId, setStudentId] = useState(initialStudentId || null)
+  const [studentId, setStudentId] = useState(initialStudentId || user?.student_id || null)
   const [subjectId, setSubjectId] = useState(null)
   const [selectedExamId, setSelectedExamId] = useState(initialExamId || null)
   const [loading, setLoading] = useState(false)
@@ -39,26 +42,45 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
 
   // Load students, subjects, exams, classes on mount
   useEffect(() => {
-    getStudents({ page: 1, page_size: 9999 }).then((res) => {
-      setStudents(res.data?.items || [])
-    })
+    if (isStudentRole) {
+      const boundStudentId = user?.student_id ?? null
+      setStudentId(boundStudentId)
+      setStudents(
+        boundStudentId
+          ? [{
+              id: boundStudentId,
+              name: user?.student_name || user?.username || '当前学生',
+              student_no: user?.student_no || '',
+              class_id: null,
+            }]
+          : []
+      )
+    } else {
+      getStudents({ page: 1, page_size: 9999 })
+        .then((res) => {
+          setStudents(res.data?.items || [])
+        })
+        .catch(() => {
+          setStudents([])
+        })
+    }
     getSubjects().then((res) => {
       const list = res.data || []
       setSubjects(list)
       if (list.length > 0) setSubjectId(list[0].id)
-    })
+    }).catch(() => setSubjects([]))
     getExams().then((res) => {
       setExams(res.data || [])
-    })
+    }).catch(() => setExams([]))
     getClasses().then((res) => {
       setClasses(res.data || [])
-    })
-  }, [])
+    }).catch(() => setClasses([]))
+  }, [isStudentRole, user?.student_id, user?.student_name, user?.student_no, user?.username])
 
   // Sync initialStudentId from parent
   useEffect(() => {
-    if (initialStudentId) setStudentId(initialStudentId)
-  }, [initialStudentId])
+    if (!isStudentRole && initialStudentId) setStudentId(initialStudentId)
+  }, [isStudentRole, initialStudentId])
 
   // Sync initialExamId from parent
   useEffect(() => {
@@ -72,10 +94,10 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
 
   // Filter exams by student's grade, sorted by date descending
   const filteredExams = studentGrade
-    ? exams
+    ? [...exams]
         .filter((e) => parseExamGrades(e.grade).includes(studentGrade))
         .sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
-    : exams.sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
+    : [...exams].sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
 
   // Auto-select most recent exam when student changes
   useEffect(() => {
@@ -220,16 +242,17 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
     <div>
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col>
-          <Text>选择学生：</Text>
+          <Text>{isStudentRole ? '当前学生：' : '选择学生：'}</Text>
           <Select
-            showSearch
+            showSearch={!isStudentRole}
+            disabled={isStudentRole}
             placeholder="搜索学号或姓名"
             style={{ width: 220 }}
             value={studentId}
             onChange={setStudentId}
             options={studentOptions}
             filterOption={(input, option) =>
-              option.label.toLowerCase().includes(input.toLowerCase())
+              (option?.label || '').toLowerCase().includes(input.toLowerCase())
             }
           />
         </Col>

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import engine, Base
+from app.database import engine, Base, ensure_sqlite_user_schema_compat
 from app.routers import auth
 from app.routers import classes, subjects, teacher_classes, custom_fields, students
 from app.routers import exams, scores, analysis
@@ -10,6 +10,7 @@ from app.routers import schedule_periods, teacher_schedules, memos, daily_quote
 from app.routers import seats, schools, accounts
 
 Base.metadata.create_all(bind=engine)
+ensure_sqlite_user_schema_compat(engine)
 
 app = FastAPI(title="学生成绩管理系统", version="1.0.0")
 

@@ -29,13 +29,13 @@ import { getStudents } from '../api/student';
 const { Text } = Typography;
 
 const ROLE_OPTIONS = [
-  { value: 'school_admin', label: 'School Admin' },
-  { value: 'teacher', label: 'Teacher' },
-  { value: 'student', label: 'Student' },
+  { value: 'school_admin', label: '校管理员' },
+  { value: 'teacher', label: '教师' },
+  { value: 'student', label: '学生' },
 ];
 
 const roleColor = { school_admin: 'blue', teacher: 'green', student: 'orange' };
-const roleLabel = { school_admin: 'School Admin', teacher: 'Teacher', student: 'Student' };
+const roleLabel = { school_admin: '校管理员', teacher: '教师', student: '学生' };
 
 const buildAccountPayload = (values) => ({
   role: values.role,
@@ -60,7 +60,7 @@ export default function AccountManage() {
       const res = await getSchools();
       setSchools(res.data);
     } catch {
-      message.error('Failed to load schools');
+      message.error('加载学校失败');
     }
   };
 
@@ -69,7 +69,7 @@ export default function AccountManage() {
       const res = await getStudents({ page: 1, page_size: 1000 });
       setStudents(res.data.items ?? []);
     } catch {
-      message.error('Failed to load students');
+      message.error('加载学生失败');
     }
   };
 
@@ -79,7 +79,7 @@ export default function AccountManage() {
       const res = await getAccounts(keyword || undefined);
       setAccounts(res.data);
     } catch {
-      message.error('Failed to load accounts');
+      message.error('加载账户失败');
     } finally {
       setLoading(false);
     }
@@ -93,7 +93,7 @@ export default function AccountManage() {
 
   const openCreate = () => {
     if (schools.length === 0) {
-      message.warning('Create a school before creating accounts');
+      message.warning('请先创建学校，再创建账户');
       return;
     }
     setEditing(null);
@@ -122,10 +122,10 @@ export default function AccountManage() {
 
       if (editing) {
         await updateAccount(editing.id, payload);
-        message.success('Account updated');
+        message.success('账户更新成功');
       } else {
         await createAccount({ ...values, student_id: payload.student_id });
-        message.success('Account created');
+        message.success('账户创建成功');
       }
       setModalOpen(false);
       setSelectedIds([]);
@@ -140,11 +140,11 @@ export default function AccountManage() {
   const handleDelete = async (id) => {
     try {
       await deleteAccount(id);
-      message.success('Account deleted');
+      message.success('账户删除成功');
       setSelectedIds((ids) => ids.filter((item) => item !== id));
       fetchAccounts();
     } catch (err) {
-      message.error(err?.response?.data?.detail || 'Delete failed');
+      message.error(err?.response?.data?.detail || '删除失败');
     }
   };
 
@@ -152,11 +152,11 @@ export default function AccountManage() {
     if (selectedIds.length === 0) return;
     try {
       await batchDeleteAccounts(selectedIds);
-      message.success(`Deleted ${selectedIds.length} accounts`);
+      message.success(`已删除 ${selectedIds.length} 个账户`);
       setSelectedIds([]);
       fetchAccounts();
     } catch (err) {
-      message.error(err?.response?.data?.detail || 'Batch delete failed');
+      message.error(err?.response?.data?.detail || '批量删除失败');
     }
   };
 
@@ -188,27 +188,27 @@ export default function AccountManage() {
       ),
     },
     { title: 'ID', dataIndex: 'id', width: 60 },
-    { title: 'Username', dataIndex: 'username' },
-    { title: 'School', dataIndex: 'school_id', render: (value) => schoolMap[value] || '-' },
+    { title: '用户名', dataIndex: 'username' },
+    { title: '学校', dataIndex: 'school_id', render: (value) => schoolMap[value] || '-' },
     {
-      title: 'Role',
+      title: '角色',
       dataIndex: 'role',
       render: (value) => <Tag color={roleColor[value]}>{roleLabel[value] || value}</Tag>,
     },
     {
-      title: 'Bound Student',
+      title: '绑定学生',
       render: (_, record) => (
         record.student_id ? `${record.student_name} (${record.student_no})` : '-'
       ),
     },
-    { title: 'Created At', dataIndex: 'created_at', render: (value) => value?.slice(0, 10) },
+    { title: '创建时间', dataIndex: 'created_at', render: (value) => value?.slice(0, 10) },
     {
-      title: 'Actions',
+      title: '操作',
       render: (_, record) => (
         <Space>
-          <Button size="small" onClick={() => openEdit(record)}>Edit</Button>
-          <Popconfirm title="Delete this account?" onConfirm={() => handleDelete(record.id)}>
-            <Button size="small" danger>Delete</Button>
+          <Button size="small" onClick={() => openEdit(record)}>编辑</Button>
+          <Popconfirm title="确定删除该账户？" onConfirm={() => handleDelete(record.id)}>
+            <Button size="small" danger>删除</Button>
           </Popconfirm>
         </Space>
       ),
@@ -219,7 +219,7 @@ export default function AccountManage() {
     <>
       <Row gutter={12} style={{ marginBottom: 16 }} align="middle">
         <Col>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>Create Account</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增账户</Button>
         </Col>
         <Col>
           <Button
@@ -228,12 +228,12 @@ export default function AccountManage() {
             disabled={selectedIds.length === 0}
             onClick={handleBatchDelete}
           >
-            Delete Selected{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+            删除所选{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
           </Button>
         </Col>
         <Col flex="auto">
           <Input.Search
-            placeholder="Search username"
+            placeholder="搜索用户名"
             allowClear
             onSearch={setKeyword}
             style={{ maxWidth: 280 }}
@@ -244,7 +244,7 @@ export default function AccountManage() {
 
       {schools.length === 0 && (
         <div style={{ marginBottom: 12 }}>
-          <Text type="warning">No schools found. Create a school before creating accounts.</Text>
+          <Text type="warning">当前没有学校，请先创建学校后再创建账户。</Text>
         </div>
       )}
 
@@ -253,11 +253,11 @@ export default function AccountManage() {
         columns={columns}
         dataSource={accounts}
         loading={loading}
-        pagination={{ pageSize: 20, showTotal: (total) => `Total ${total}` }}
+        pagination={{ pageSize: 20, showTotal: (total) => `共 ${total} 条` }}
       />
 
       <Modal
-        title={editing ? 'Edit Account' : 'Create Account'}
+        title={editing ? '编辑账户' : '新增账户'}
         open={modalOpen}
         onOk={handleSubmit}
         onCancel={() => setModalOpen(false)}
@@ -266,24 +266,24 @@ export default function AccountManage() {
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item
             name="username"
-            label="Username"
-            rules={[{ required: !editing, message: 'Please enter a username' }]}
+            label="用户名"
+            rules={[{ required: !editing, message: '请输入用户名' }]}
           >
-            <Input placeholder={editing ? 'Leave blank to keep the current username' : 'Enter username'} />
+            <Input placeholder={editing ? '留空则保持当前用户名' : '请输入用户名'} />
           </Form.Item>
           <Form.Item
             name="password"
-            label="Password"
+            label="密码"
             rules={[
-              { required: !editing, message: 'Please enter a password' },
-              { min: 6, message: 'Password must be at least 6 characters' },
+              { required: !editing, message: '请输入密码' },
+              { min: 6, message: '密码至少 6 位' },
             ]}
           >
-            <Input.Password placeholder={editing ? 'Leave blank to keep the current password' : 'Enter password'} />
+            <Input.Password placeholder={editing ? '留空则保持当前密码' : '请输入密码'} />
           </Form.Item>
-          <Form.Item name="role" label="Role" rules={[{ required: true, message: 'Please select a role' }]}>
+          <Form.Item name="role" label="角色" rules={[{ required: true, message: '请选择角色' }]}>
             <Select
-              placeholder="Select role"
+              placeholder="请选择角色"
               options={ROLE_OPTIONS}
               onChange={(role) => {
                 if (role !== 'student') {
@@ -292,19 +292,19 @@ export default function AccountManage() {
               }}
             />
           </Form.Item>
-          <Form.Item name="school_id" label="School" rules={[{ required: true, message: 'Please select a school' }]}>
-            <Select placeholder="Select school" showSearch optionFilterProp="label" options={schools.map((school) => ({ label: school.name, value: school.id }))} />
+          <Form.Item name="school_id" label="学校" rules={[{ required: true, message: '请选择学校' }]}>
+            <Select placeholder="请选择学校" showSearch optionFilterProp="label" options={schools.map((school) => ({ label: school.name, value: school.id }))} />
           </Form.Item>
           {selectedRole === 'student' && (
             <Form.Item
               name="student_id"
-              label="Bind Student"
-              rules={[{ required: true, message: 'Please select a student profile' }]}
+              label="绑定学生"
+              rules={[{ required: true, message: '请选择学生档案' }]}
             >
               <Select
                 showSearch
                 optionFilterProp="label"
-                placeholder="Select student profile"
+                placeholder="请选择学生档案"
                 options={studentOptions}
                 allowClear
               />

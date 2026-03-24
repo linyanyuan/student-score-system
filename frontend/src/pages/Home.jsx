@@ -6,7 +6,7 @@ import { getDailyQuote, getMySchedule, getMemos, createMemo, updateMemo, deleteM
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
 import dayjs from 'dayjs'
-import { buildSchedulePeriodPayload, isCreatingFirstPeriod } from './homePeriodUtils'
+import { buildSchedulePeriodPayload, isCreatingPeriod } from './homePeriodUtils'
 
 const { Title, Paragraph } = Typography
 const { TextArea } = Input
@@ -196,13 +196,9 @@ export default function Home() {
   }
 
   const handleManagePeriods = () => {
-    if (periods.length > 0) {
-      handleEditPeriod(periods[0])
-      return
-    }
     setEditingPeriod(null)
     periodForm.resetFields()
-    periodForm.setFieldsValue({ sort_order: 1 })
+    periodForm.setFieldsValue({ sort_order: periods.length + 1 })
     setPeriodModalVisible(true)
   }
 
@@ -210,9 +206,9 @@ export default function Home() {
     try {
       const values = await periodForm.validateFields()
 
-      if (isCreatingFirstPeriod(periods, editingPeriod)) {
+      if (isCreatingPeriod(editingPeriod)) {
         await createSchedulePeriod(buildSchedulePeriodPayload(values))
-        message.success('Created successfully')
+        message.success('创建成功')
         setPeriodModalVisible(false)
         setEditingPeriod(null)
         periodForm.resetFields()
@@ -229,10 +225,10 @@ export default function Home() {
 
       if (timeDiff !== 0) {
         Modal.confirm({
-          title: 'Adjust later periods?',
-          content: `Time changed by ${Math.abs(timeDiff)} minutes. Sync later periods as well?`,
-          okText: 'Yes',
-          cancelText: 'No',
+          title: '是否同步后续节次？',
+          content: `本次调整了 ${Math.abs(timeDiff)} 分钟，是否同时调整后续节次时间？`,
+          okText: '同步',
+          cancelText: '不同步',
           onOk: async () => {
             await updatePeriodWithAdjustment(editingPeriod.id, values, timeDiff, true)
           },
@@ -244,7 +240,7 @@ export default function Home() {
         await updatePeriodWithAdjustment(editingPeriod.id, values, 0, false)
       }
     } catch (error) {
-      message.error('Operation failed')
+      message.error('操作失败')
     }
   }
 
@@ -284,7 +280,7 @@ export default function Home() {
     }
   }
 
-  const isCreatingFirstPeriodMode = isCreatingFirstPeriod(periods, editingPeriod)
+  const isCreatingPeriodMode = isCreatingPeriod(editingPeriod)
 
   const getPriorityColor = (priority) => {
     switch (priority) {
@@ -508,24 +504,24 @@ export default function Home() {
 
       {/* 节次编辑弹窗 */}
       <Modal
-        title={isCreatingFirstPeriodMode ? 'Create First Period' : 'Edit Period Time'}
+        title={isCreatingPeriodMode ? '新增节次' : '编辑节次时间'}
         open={periodModalVisible}
         onOk={handlePeriodSubmit}
         onCancel={() => setPeriodModalVisible(false)}
         footer={undefined}
         width={600}
       >
-        {isCreatingFirstPeriodMode && (
+        {isCreatingPeriodMode && periods.length === 0 && (
           <div style={{ marginBottom: 12, padding: 12, background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 4, color: '#ad4e00' }}>
             当前暂无节次数据，请先补充节次信息后再进行编辑。
           </div>
         )}
         <Form form={periodForm} layout="vertical">
           <Form.Item name="name" label="节次名称" rules={[{ required: true, message: '请输入节次名称' }]}>
-            <Input disabled={!isCreatingFirstPeriodMode} />
+            <Input disabled={!isCreatingPeriodMode} />
           </Form.Item>
-          {isCreatingFirstPeriodMode && (
-            <Form.Item name="sort_order" label="Sort Order" initialValue={1} rules={[{ required: true, message: 'Please enter a sort order' }]}>
+          {isCreatingPeriodMode && (
+            <Form.Item name="sort_order" label="排序" initialValue={1} rules={[{ required: true, message: '请输入排序' }]}>
               <InputNumber min={1} style={{ width: '100%' }} />
             </Form.Item>
           )}
@@ -541,7 +537,7 @@ export default function Home() {
             提示：修改时间后，系统会询问是否同步调整后续节次的时间
           </p>
         </div>
-        {!isCreatingFirstPeriodMode && periods.length > 0 && (
+        {periods.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <p style={{ fontWeight: 'bold', marginBottom: 8 }}>所有节次：</p>
             {periods.map(p => (
