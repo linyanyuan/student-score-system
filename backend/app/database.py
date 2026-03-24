@@ -21,8 +21,16 @@ def ensure_sqlite_user_schema_compat(bind: Engine) -> None:
         return
 
     user_columns = {col["name"] for col in inspector.get_columns("users")}
-    if "student_id" in user_columns:
+    missing_statements: list[str] = []
+
+    if "school_id" not in user_columns:
+        missing_statements.append("ALTER TABLE users ADD COLUMN school_id INTEGER")
+    if "student_id" not in user_columns:
+        missing_statements.append("ALTER TABLE users ADD COLUMN student_id INTEGER")
+
+    if not missing_statements:
         return
 
     with bind.begin() as conn:
-        conn.execute(text("ALTER TABLE users ADD COLUMN student_id INTEGER"))
+        for statement in missing_statements:
+            conn.execute(text(statement))
