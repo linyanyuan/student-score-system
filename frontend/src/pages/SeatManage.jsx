@@ -15,8 +15,8 @@ export default function SeatManage() {
   const [students, setStudents] = useState([])
   const [view, setView] = useState('teacher') // 'teacher' | 'student'
   const [layoutConfig, setLayoutConfig] = useState({
-    columns: 5,
-    column_rows: [6, 6, 6, 6, 6],
+    columns: 9,
+    column_rows: [8, 8, 8, 8, 8 ,8, 8, 8,8],
     podium_position: 'bottom'
   })
   const [seatData, setSeatData] = useState({})

@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react'
-import { Row, Col, Card, Select, Table, Tag, Spin, Empty, Typography, Tooltip, Checkbox } from 'antd'
+﻿import { useState, useEffect } from 'react'
+import { Row, Col, Card, Select, Table, Tag, Spin, Empty, Typography, Tooltip, Divider } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
 import { Column, Bar } from '@ant-design/charts'
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
 import {
   getClassesRank,
+  getExamSubjectThreeRatesOneScoreRank,
   getClassDistribution,
   getClassBottomStudents,
   getClassBiasedStudents,
@@ -31,11 +32,12 @@ function DistributionChart({ data }) {
     label: {
       position: 'top',
       style: {
-         fill: '#f01010',
-         fontSize:16,
+        fill: '#f01010',
+        fontSize: 16,
         fontWeight: 600,
-        dx:-10,
-        dy:-25},
+        dx: -10,
+        dy: -25,
+      },
       text: (datum) => {
         const count = datum?.count
         return count !== undefined && count !== null ? `${count}人` : '-'
@@ -51,26 +53,63 @@ function DistributionChart({ data }) {
   return <Column {...config} height={220} />
 }
 
+function buildBarRankConfig(data) {
+  return {
+    data,
+    xField: 'class_name',
+    yField: 'avg_score',
+    legend: false,
+    colorField: 'class_name',
+    labels: [
+      {
+        position: 'right',
+        text: (datum) => datum?.avg_score?.toFixed(2) ?? '-',
+        style: {
+          fill: '#f01010',
+          fontWeight: 600,
+          dx: 50,
+        },
+      },
+    ],
+    axis: { y: { labelAutoRotate: false } },
+    tooltip: {
+      title: (d) => d.class_name,
+      items: [{ field: 'avg_score', name: '平均分', valueFormatter: (v) => Number(v).toFixed(2) }],
+    },
+  }
+}
+
 export default function ClassAnalysis({ examId }) {
   const [classes, setClasses] = useState([])
   const [subjects, setSubjects] = useState([])
   const [classId, setClassId] = useState(null)
-  const [selectedSubjectIds, setSelectedSubjectIds] = useState([])
   const [loading, setLoading] = useState(false)
 
-  const [classesRankData, setClassesRankData] = useState([])
+  const [subjectRankData, setSubjectRankData] = useState([])
   const [totalRankData, setTotalRankData] = useState([])
+  const [threeRateRankData, setThreeRateRankData] = useState([])
   const [distribution, setDistribution] = useState(null)
   const [bottomStudents, setBottomStudents] = useState([])
   const [biasedStudents, setBiasedStudents] = useState([])
+
   const [selectedSubjectDist, setSelectedSubjectDist] = useState('total')
+  const [selectedRankSubjectId, setSelectedRankSubjectId] = useState(null)
+  const [selectedThreeRateSubjectId, setSelectedThreeRateSubjectId] = useState(null)
 
   useEffect(() => {
     getClasses().then((res) => setClasses(res.data || []))
-    getSubjects().then((res) => setSubjects(res.data || []))
+    getSubjects().then((res) => {
+      const subjectList = res.data || []
+      setSubjects(subjectList)
+      if (!selectedRankSubjectId && subjectList.length > 0) {
+        setSelectedRankSubjectId(subjectList[0].id)
+      }
+      if (!selectedThreeRateSubjectId && subjectList.length > 0) {
+        setSelectedThreeRateSubjectId(subjectList[0].id)
+      }
+    })
   }, [])
 
-  // Fetch total score rank (always shown on right)
   useEffect(() => {
     if (!examId) {
       setTotalRankData([])
@@ -82,29 +121,29 @@ export default function ClassAnalysis({ examId }) {
     })
   }, [examId])
 
-  // Fetch subject rank when examId or selectedSubjectIds changes
   useEffect(() => {
-    if (!examId || selectedSubjectIds.length === 0) {
-      setClassesRankData([])
+    if (!examId || !selectedRankSubjectId) {
+      setSubjectRankData([])
       return
     }
-    Promise.all(
-      selectedSubjectIds.map((subjectId) =>
-        getClassesRank(examId, subjectId).then((res) => {
-          const subjectName = subjects.find((s) => s.id === subjectId)?.name || '未知科目'
-          return (res.data || []).map((item) => ({
-            ...item,
-            subject_name: subjectName,
-            subject_id: subjectId,
-          }))
-        })
-      )
-    ).then((results) => {
-      setClassesRankData(results.flat())
+    getClassesRank(examId, selectedRankSubjectId).then((res) => {
+      const data = (res.data || []).sort((a, b) => b.avg_score - a.avg_score)
+      setSubjectRankData(data)
     })
-  }, [examId, selectedSubjectIds, subjects])
+  }, [examId, selectedRankSubjectId])
 
-  // Fetch single-class analysis when classId or examId changes
+  useEffect(() => {
+    if (!examId || !selectedThreeRateSubjectId) {
+      setThreeRateRankData([])
+      return
+    }
+    getExamSubjectThreeRatesOneScoreRank(examId, selectedThreeRateSubjectId).then((res) => {
+      const data = (res.data || []).sort((a, b) => (b.total_score ?? 0) - (a.total_score ?? 0))
+      setThreeRateRankData(data)
+    })
+  }, [examId, selectedThreeRateSubjectId])
+
+  // Fetch single-class deep analysis when classId or examId changes
   useEffect(() => {
     if (!classId || !examId) {
       setDistribution(null)
@@ -132,56 +171,14 @@ export default function ClassAnalysis({ examId }) {
       .finally(() => setLoading(false))
   }, [classId, examId])
 
-  // Subject rank chart config - x轴为科目，不同班级作为分组
-  const rankConfig = {
-    data: classesRankData,
-    xField: 'subject_name',
-    yField: 'avg_score',
-    seriesField: 'class_name',
-    isGroup: true,
-    labels:[
-      { text: (datum) => {
-        const score = datum?.avg_score
-        return score !== undefined && score !== null ? score.toFixed(2) : '-'
-      }, style: {
-         fill: '#f01010',
-        fontWeight: 600, dy: -18 } },],
-    colorField: 'class_name',
-    axis: { x: { labelAutoRotate: true } },
-    tooltip: {
-      title: (d) => d?.subject_name || '-',
-      items: [{ field: 'avg_score', name: (d) => d?.class_name || '-', valueFormatter: (v) => Number(v).toFixed(2) }],
-    },
-    legend: { position: 'top' },
-  }
+  const subjectRankConfig = buildBarRankConfig(subjectRankData)
+  const totalRankConfig = buildBarRankConfig(totalRankData)
 
-  // Total rank chart config - 横向条形图排行榜
-  const totalRankConfig = {
-    data: totalRankData,
-    xField: 'class_name',
-    yField: 'avg_score',
-    legend: false,
-    colorField: 'class_name',
-    labels:[{
-      position: 'right',
-      text: (datum) => datum?.avg_score?.toFixed(2) ?? '-',
-      style: {
-         fill: '#f01010',
-        fontWeight: 600,dx:50} 
-    },],
-    axis: { y: false, y: { labelAutoRotate: false } },
-    tooltip: {
-      title: (d) => d.class_name,
-      items: [{ field: 'avg_score', name: '平均分', valueFormatter: (v) => Number(v).toFixed(2) }],
-    },
-  }
-
-  // Build subject columns for bottom/biased tables dynamically
   const allSubjectNames = bottomStudents.length > 0
     ? Object.keys(bottomStudents[0].subjects || {})
     : biasedStudents.length > 0
-    ? Object.keys(biasedStudents[0].subjects || {})
-    : []
+      ? Object.keys(biasedStudents[0].subjects || {})
+      : []
 
   const subjectCols = allSubjectNames.map((name) => ({
     title: name,
@@ -225,12 +222,50 @@ export default function ClassAnalysis({ examId }) {
     },
   ]
 
-  // Distribution subject options
+  const threeRateColumns = [
+    { title: '班级', dataIndex: 'class_name', key: 'class_name', width: 140 },
+    {
+      title: '优秀率分数',
+      dataIndex: 'excellent_rate_score',
+      key: 'excellent_rate_score',
+      width: 120,
+      render: (value) => Number(value ?? 0).toFixed(2),
+    },
+    {
+      title: '良好率分数',
+      dataIndex: 'good_rate_score',
+      key: 'good_rate_score',
+      width: 120,
+      render: (value) => Number(value ?? 0).toFixed(2),
+    },
+    {
+      title: '及格率分数',
+      dataIndex: 'pass_rate_score',
+      key: 'pass_rate_score',
+      width: 120,
+      render: (value) => Number(value ?? 0).toFixed(2),
+    },
+    {
+      title: '平均分',
+      dataIndex: 'avg_score',
+      key: 'avg_score',
+      width: 110,
+      render: (value) => Number(value ?? 0).toFixed(2),
+    },
+    {
+      title: '总分数',
+      dataIndex: 'total_score',
+      key: 'total_score',
+      width: 110,
+      render: (value) => Number(value ?? 0).toFixed(2),
+    },
+  ]
+
   const distSubjectOptions = distribution
     ? [
-        { value: 'total', label: '总分' },
-        ...Object.keys(distribution.subjects || {}).map((name) => ({ value: name, label: name })),
-      ]
+      { value: 'total', label: '总分' },
+      ...Object.keys(distribution.subjects || {}).map((name) => ({ value: name, label: name })),
+    ]
     : [{ value: 'total', label: '总分' }]
 
   const currentDistData =
@@ -240,7 +275,6 @@ export default function ClassAnalysis({ examId }) {
 
   return (
     <div>
-      {/* Filters */}
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col>
           <Text>选择班级（深度分析）：</Text>
@@ -259,24 +293,26 @@ export default function ClassAnalysis({ examId }) {
         <Empty description="请先在成绩列表中选择考试" />
       ) : (
         <>
-          {/* Class rank charts - left: subject rank, right: total rank */}
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col xs={24} lg={12}>
               <Card
-                title="科目排名"
+                title="科目平均分排名"
                 size="small"
                 extra={
-                  <Checkbox.Group
-                    value={selectedSubjectIds}
-                    onChange={setSelectedSubjectIds}
+                  <Select
+                    size="small"
+                    style={{ width: 160 }}
+                    value={selectedRankSubjectId}
+                    onChange={setSelectedRankSubjectId}
                     options={subjects.map((s) => ({ value: s.id, label: s.name }))}
+                    placeholder="选择科目"
                   />
                 }
               >
-                {selectedSubjectIds.length > 0 && classesRankData.length > 0 ? (
-                  <Column {...rankConfig} height={260} />
+                {selectedRankSubjectId && subjectRankData.length > 0 ? (
+                  <Bar {...subjectRankConfig} height={260} />
                 ) : (
-                  <Empty description="请勾选科目查看排名" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 )}
               </Card>
             </Col>
@@ -291,11 +327,44 @@ export default function ClassAnalysis({ examId }) {
             </Col>
           </Row>
 
-          {/* Single class deep analysis */}
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Col xs={24}>
+              <Card
+                title="三率一分排名"
+                size="small"
+                extra={
+                  <Select
+                    size="small"
+                    style={{ width: 160 }}
+                    value={selectedThreeRateSubjectId}
+                    onChange={setSelectedThreeRateSubjectId}
+                    options={subjects.map((s) => ({ value: s.id, label: s.name }))}
+                    placeholder="选择科目"
+                  />
+                }
+              >
+                <Table
+                  dataSource={threeRateRankData}
+                  columns={threeRateColumns}
+                  rowKey="class_id"
+                  size="small"
+                  pagination={false}
+                  scroll={{ x: 'max-content' }}
+                  locale={{ emptyText: '暂无数据' }}
+                />
+              </Card>
+            </Col>
+          </Row>
+
           {classId && (
-            <Spin spinning={loading}>
-              <Row gutter={[16, 16]}>
-                {/* Distribution */}
+            <>
+              <Divider orientation="left" style={{ margin: '8px 0 16px' }}>
+                <Text type="secondary" style={{ fontSize: 16, fontWeight: 600 }}>
+                  以下为所选班级的深度分析
+                </Text>
+              </Divider>
+              <Spin spinning={loading}>
+                <Row gutter={[16, 16]}>
                 <Col xs={24}>
                   <Card
                     title="成绩分布"
@@ -314,22 +383,6 @@ export default function ClassAnalysis({ examId }) {
                   </Card>
                 </Col>
 
-                {/* Bottom students */}
-                <Col xs={24}>
-                  <Card title="后进生分析（总分排名靠后）" size="small">
-                    <Table
-                      dataSource={bottomStudents}
-                      columns={bottomColumns}
-                      rowKey="student_no"
-                      size="small"
-                      pagination={false}
-                      scroll={{ x: 'max-content' }}
-                      locale={{ emptyText: '暂无数据' }}
-                    />
-                  </Card>
-                </Col>
-
-                {/* Biased students */}
                 <Col xs={24}>
                   <Card
                     title={
@@ -353,8 +406,23 @@ export default function ClassAnalysis({ examId }) {
                     />
                   </Card>
                 </Col>
-              </Row>
-            </Spin>
+
+                <Col xs={24}>
+                  <Card title="后进生分析（总分排名靠后）" size="small">
+                    <Table
+                      dataSource={bottomStudents}
+                      columns={bottomColumns}
+                      rowKey="student_no"
+                      size="small"
+                      pagination={false}
+                      scroll={{ x: 'max-content' }}
+                      locale={{ emptyText: '暂无数据' }}
+                    />
+                  </Card>
+                </Col>
+                </Row>
+              </Spin>
+            </>
           )}
         </>
       )}
