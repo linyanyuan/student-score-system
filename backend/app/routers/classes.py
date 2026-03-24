@@ -16,6 +16,13 @@ def list_classes(
     db: Session = Depends(get_db),
 ):
     query = db.query(Class)
+    if current_user.role == "student":
+        if current_user.student_id is None:
+            return []
+        bound_student = db.query(Student).filter(Student.id == current_user.student_id).first()
+        if bound_student is None:
+            return []
+        return db.query(Class).filter(Class.id == bound_student.class_id).all()
     if current_user.role == "teacher":
         from app.models.teacher_class import TeacherClass
         class_ids = db.query(TeacherClass.class_id).filter(

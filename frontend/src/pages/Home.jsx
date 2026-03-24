@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
-import { Typography, Card, Row, Col, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, message, Checkbox, TimePicker } from 'antd'
+import { Typography, Card, Row, Col, Table, Tag, Button, Modal, Form, Input, InputNumber, Select, DatePicker, message, Checkbox, TimePicker } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
 import { useAuth } from '../contexts/AuthContext'
-import { getDailyQuote, getMySchedule, getMemos, createMemo, updateMemo, deleteMemo, updateMemoStatus, getSchedulePeriods, createOrUpdateSchedule, deleteSchedule, updateSchedulePeriod } from '../api/schedule'
+import { getDailyQuote, getMySchedule, getMemos, createMemo, updateMemo, deleteMemo, updateMemoStatus, getSchedulePeriods, createSchedulePeriod, createOrUpdateSchedule, deleteSchedule, updateSchedulePeriod } from '../api/schedule'
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
 import dayjs from 'dayjs'
+import { buildSchedulePeriodPayload, isCreatingPeriod } from './homePeriodUtils'
 
 const { Title, Paragraph } = Typography
 const { TextArea } = Input
@@ -195,40 +196,39 @@ export default function Home() {
   }
 
   const handleManagePeriods = () => {
-    if (periods.length > 0) {
-      handleEditPeriod(periods[0])
-      return
-    }
     setEditingPeriod(null)
     periodForm.resetFields()
+    periodForm.setFieldsValue({ sort_order: periods.length + 1 })
     setPeriodModalVisible(true)
   }
 
   const handlePeriodSubmit = async () => {
-    if (!editingPeriod) {
-      message.warning('当前无可编辑节次')
-      return
-    }
     try {
       const values = await periodForm.validateFields()
+
+      if (isCreatingPeriod(editingPeriod)) {
+        await createSchedulePeriod(buildSchedulePeriodPayload(values))
+        message.success('创建成功')
+        setPeriodModalVisible(false)
+        setEditingPeriod(null)
+        periodForm.resetFields()
+        await loadData()
+        return
+      }
+
       const newStartTime = values.start_time.format('HH:mm')
-      const newEndTime = values.end_time.format('HH:mm')
-
       const oldStartTime = editingPeriod.start_time
-      const oldEndTime = editingPeriod.end_time
 
-      // 计算时间差（分钟）
       const oldStart = dayjs(oldStartTime, 'HH:mm')
       const newStart = dayjs(newStartTime, 'HH:mm')
       const timeDiff = newStart.diff(oldStart, 'minute')
 
-      // 如果时间有变化，询问是否调整其他节次
       if (timeDiff !== 0) {
         Modal.confirm({
-          title: '时间调整确认',
-          content: `检测到时间变化了 ${Math.abs(timeDiff)} 分钟，是否同步调整后续节次的时间？`,
-          okText: '是',
-          cancelText: '否',
+          title: '是否同步后续节次？',
+          content: `本次调整了 ${Math.abs(timeDiff)} 分钟，是否同时调整后续节次时间？`,
+          okText: '同步',
+          cancelText: '不同步',
           onOk: async () => {
             await updatePeriodWithAdjustment(editingPeriod.id, values, timeDiff, true)
           },
@@ -279,6 +279,8 @@ export default function Home() {
       message.error('更新失败')
     }
   }
+
+  const isCreatingPeriodMode = isCreatingPeriod(editingPeriod)
 
   const getPriorityColor = (priority) => {
     switch (priority) {
@@ -502,22 +504,27 @@ export default function Home() {
 
       {/* 节次编辑弹窗 */}
       <Modal
-        title={periods.length > 0 ? '编辑节次时间' : '节次管理'}
+        title={isCreatingPeriodMode ? '新增节次' : '编辑节次时间'}
         open={periodModalVisible}
         onOk={handlePeriodSubmit}
         onCancel={() => setPeriodModalVisible(false)}
-        footer={periods.length === 0 ? [<Button key="close" onClick={() => setPeriodModalVisible(false)}>关闭</Button>] : undefined}
+        footer={undefined}
         width={600}
       >
-        {periods.length === 0 && (
+        {isCreatingPeriodMode && periods.length === 0 && (
           <div style={{ marginBottom: 12, padding: 12, background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 4, color: '#ad4e00' }}>
             当前暂无节次数据，请先补充节次信息后再进行编辑。
           </div>
         )}
         <Form form={periodForm} layout="vertical">
           <Form.Item name="name" label="节次名称" rules={[{ required: true, message: '请输入节次名称' }]}>
-            <Input disabled />
+            <Input disabled={!isCreatingPeriodMode} />
           </Form.Item>
+          {isCreatingPeriodMode && (
+            <Form.Item name="sort_order" label="排序" initialValue={1} rules={[{ required: true, message: '请输入排序' }]}>
+              <InputNumber min={1} style={{ width: '100%' }} />
+            </Form.Item>
+          )}
           <Form.Item name="start_time" label="开始时间" rules={[{ required: true, message: '请选择开始时间' }]}>
             <TimePicker format="HH:mm" style={{ width: '100%' }} />
           </Form.Item>

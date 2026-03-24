@@ -97,7 +97,7 @@ export default function ClassAnalysis({ examId }) {
   const [selectedThreeRateSubjectId, setSelectedThreeRateSubjectId] = useState(null)
 
   useEffect(() => {
-    getClasses().then((res) => setClasses(res.data || []))
+    getClasses().then((res) => setClasses(res.data || [])).catch(() => setClasses([]))
     getSubjects().then((res) => {
       const subjectList = res.data || []
       setSubjects(subjectList)
@@ -107,7 +107,7 @@ export default function ClassAnalysis({ examId }) {
       if (!selectedThreeRateSubjectId && subjectList.length > 0) {
         setSelectedThreeRateSubjectId(subjectList[0].id)
       }
-    })
+    }).catch(() => setSubjects([]))
   }, [])
 
   useEffect(() => {
@@ -115,10 +115,12 @@ export default function ClassAnalysis({ examId }) {
       setTotalRankData([])
       return
     }
-    getClassesRank(examId, undefined).then((res) => {
-      const data = (res.data || []).sort((a, b) => b.avg_score - a.avg_score)
-      setTotalRankData(data)
-    })
+    getClassesRank(examId, undefined)
+      .then((res) => {
+        const data = (res.data || []).sort((a, b) => b.avg_score - a.avg_score)
+        setTotalRankData(data)
+      })
+      .catch(() => setTotalRankData([]))
   }, [examId])
 
   useEffect(() => {
@@ -126,10 +128,12 @@ export default function ClassAnalysis({ examId }) {
       setSubjectRankData([])
       return
     }
-    getClassesRank(examId, selectedRankSubjectId).then((res) => {
-      const data = (res.data || []).sort((a, b) => b.avg_score - a.avg_score)
-      setSubjectRankData(data)
-    })
+    getClassesRank(examId, selectedRankSubjectId)
+      .then((res) => {
+        const data = (res.data || []).sort((a, b) => b.avg_score - a.avg_score)
+        setSubjectRankData(data)
+      })
+      .catch(() => setSubjectRankData([]))
   }, [examId, selectedRankSubjectId])
 
   useEffect(() => {
@@ -137,10 +141,12 @@ export default function ClassAnalysis({ examId }) {
       setThreeRateRankData([])
       return
     }
-    getExamSubjectThreeRatesOneScoreRank(examId, selectedThreeRateSubjectId).then((res) => {
-      const data = (res.data || []).sort((a, b) => (b.total_score ?? 0) - (a.total_score ?? 0))
-      setThreeRateRankData(data)
-    })
+    getExamSubjectThreeRatesOneScoreRank(examId, selectedThreeRateSubjectId)
+      .then((res) => {
+        const data = (res.data || []).sort((a, b) => (b.total_score ?? 0) - (a.total_score ?? 0))
+        setThreeRateRankData(data)
+      })
+      .catch(() => setThreeRateRankData([]))
   }, [examId, selectedThreeRateSubjectId])
 
   // Fetch single-class deep analysis when classId or examId changes
