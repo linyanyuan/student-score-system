@@ -17,16 +17,25 @@ def ensure_sqlite_user_schema_compat(bind: Engine) -> None:
         return
 
     inspector = inspect(bind)
-    if "users" not in inspector.get_table_names():
-        return
+    table_names = set(inspector.get_table_names())
+    school_scoped_tables = {
+        "users",
+        "classes",
+        "subjects",
+        "custom_field_definitions",
+        "exams",
+    }
 
-    user_columns = {col["name"] for col in inspector.get_columns("users")}
     missing_statements: list[str] = []
 
-    if "school_id" not in user_columns:
-        missing_statements.append("ALTER TABLE users ADD COLUMN school_id INTEGER")
-    if "student_id" not in user_columns:
-        missing_statements.append("ALTER TABLE users ADD COLUMN student_id INTEGER")
+    for table_name in sorted(table_names & school_scoped_tables):
+        columns = {col["name"] for col in inspector.get_columns(table_name)}
+        if "school_id" not in columns:
+            missing_statements.append(f"ALTER TABLE {table_name} ADD COLUMN school_id INTEGER")
+        if table_name == "users" and "student_id" not in columns:
+            missing_statements.append("ALTER TABLE users ADD COLUMN student_id INTEGER")
+        if table_name == "subjects" and "grades" not in columns:
+            missing_statements.append("ALTER TABLE subjects ADD COLUMN grades VARCHAR(200)")
 
     if not missing_statements:
         return
