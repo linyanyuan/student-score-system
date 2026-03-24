@@ -36,6 +36,9 @@ class UserResponse(BaseModel):
     username: str
     role: str
     school_id: int | None = None
+    student_id: int | None = None
+    student_name: str | None = None
+    student_no: str | None = None
     created_at: datetime
 
 
