@@ -334,6 +334,9 @@ def _get_exam_scoped_accessible_class_ids(
     db: Session,
     exam: Exam | None,
 ) -> list[int] | None:
+    if current_user.role == "student":
+        return None
+
     base_accessible = get_accessible_class_ids(current_user, db)
     if current_user.role != "teacher" or exam is None:
         return base_accessible
@@ -351,6 +354,14 @@ def _get_exam_scoped_accessible_class_ids(
         .all()
     ]
     return class_ids
+
+
+def _resolve_student_scope_id(current_user: User, requested_student_id: int | None) -> int | None:
+    if current_user.role != "student":
+        return requested_student_id
+    if current_user.student_id is None:
+        raise ValueError("student account is not bound to a student profile")
+    return current_user.student_id
 
 
 def _sort_subjects(subjects: list) -> list:
@@ -403,12 +414,15 @@ def list_scores(
     # Permission check
     accessible = _get_exam_scoped_accessible_class_ids(current_user, db, exam)
 
-    # If student role, lock to their own data
+    try:
+        resolved_student_id = _resolve_student_scope_id(current_user, student_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     if current_user.role == "student":
-        # Find the student record linked to this user (by username matching student_no or a separate link)
-        # For now, students can only view scores if student_id is provided
-        if student_id is None:
-            raise HTTPException(status_code=400, detail="学生角色需指定 student_id")
+        bound_student = db.query(Student).filter(Student.id == resolved_student_id).first()
+        if bound_student is None:
+            raise HTTPException(status_code=400, detail="bound student profile does not exist")
 
     # Get all students with scores in this exam
     score_query = db.query(Score.student_id).filter(Score.exam_id == exam_id).distinct()
@@ -425,8 +439,8 @@ def list_scores(
         student_query = student_query.filter(Student.class_id == class_id)
     elif accessible is not None:
         student_query = student_query.filter(Student.class_id.in_(accessible))
-    if student_id:
-        student_query = student_query.filter(Student.id == student_id)
+    if resolved_student_id is not None:
+        student_query = student_query.filter(Student.id == resolved_student_id)
     if student_no:
         student_query = student_query.filter(Student.student_no.contains(student_no))
     if student_name:
