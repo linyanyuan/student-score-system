@@ -20,6 +20,7 @@ import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
 import {
   createAutoScheduleTask,
+  getClassTimetable,
   getLessonPlan,
   getScheduleTask,
   getTeachingArrangement,
@@ -62,6 +63,18 @@ function formatForbiddenPeriods(periods) {
   return periods.map((p) => `${p[0]}-${p[1]}`).join(',')
 }
 
+function buildPreviewRows(items) {
+  const periods = Array.from(new Set(items.map((i) => i.period_id))).sort((a, b) => a - b)
+  return periods.map((periodId) => {
+    const row = { period_id: periodId, period: `第${periodId}节` }
+    for (let day = 1; day <= 5; day += 1) {
+      const hit = items.find((i) => i.period_id === periodId && i.weekday === day)
+      row[`day_${day}`] = hit ? `${hit.subject_name || '-'} (${hit.teacher_name || '-'})` : ''
+    }
+    return row
+  })
+}
+
 export default function ScheduleManage() {
   const [grade, setGrade] = useState('高一')
   const [plans, setPlans] = useState([{ ...DEFAULT_PLAN_ROW }])
@@ -71,12 +84,49 @@ export default function ScheduleManage() {
   const [teachers, setTeachers] = useState([])
   const [loading, setLoading] = useState(false)
   const [task, setTask] = useState(null)
+  const [previewClassId, setPreviewClassId] = useState(null)
+  const [previewRows, setPreviewRows] = useState([])
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   const pollingRef = useRef(null)
 
   const subjectOptions = useMemo(() => subjects.map((s) => ({ label: s.name, value: s.id })), [subjects])
   const classOptions = useMemo(() => classes.map((c) => ({ label: `${c.grade}-${c.name}`, value: c.id })), [classes])
   const teacherOptions = useMemo(() => teachers.map((t) => ({ label: t.username, value: t.id })), [teachers])
+  const gradeClassOptions = useMemo(
+    () => classes.filter((c) => c.grade === grade).map((c) => ({ label: `${c.grade}-${c.name}`, value: c.id })),
+    [classes, grade]
+  )
+
+  const previewColumns = useMemo(
+    () => [
+      { title: '节次', dataIndex: 'period', key: 'period', width: 100 },
+      { title: '周一', dataIndex: 'day_1', key: 'day_1' },
+      { title: '周二', dataIndex: 'day_2', key: 'day_2' },
+      { title: '周三', dataIndex: 'day_3', key: 'day_3' },
+      { title: '周四', dataIndex: 'day_4', key: 'day_4' },
+      { title: '周五', dataIndex: 'day_5', key: 'day_5' },
+    ],
+    []
+  )
+
+  const loadClassPreview = async (classId) => {
+    if (!classId) {
+      setPreviewRows([])
+      return
+    }
+    setPreviewLoading(true)
+    try {
+      const res = await getClassTimetable(classId)
+      const rows = buildPreviewRows(res.data?.items || [])
+      setPreviewRows(rows)
+    } catch (err) {
+      message.error(err.message || '加载课表预览失败')
+      setPreviewRows([])
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
 
   useEffect(() => {
     ;(async () => {
@@ -175,6 +225,13 @@ export default function ScheduleManage() {
           if (next.status === 'success' || next.status === 'failed') {
             clearInterval(pollingRef.current)
             pollingRef.current = null
+            if (next.status === 'success') {
+              const firstClass = gradeClassOptions[0]?.value
+              if (firstClass) {
+                setPreviewClassId(firstClass)
+                loadClassPreview(firstClass)
+              }
+            }
           }
         } catch (err) {
           clearInterval(pollingRef.current)
@@ -369,8 +426,39 @@ export default function ScheduleManage() {
                 <Button type="primary" onClick={submitArrangement}>保存授课安排</Button>
               </Space>
             }
+            style={{ marginBottom: 16 }}
           >
             <Table rowKey={(_, idx) => `arr-${idx}`} pagination={false} dataSource={arrangements} columns={arrangementColumns} />
+          </Card>
+        </Col>
+
+        <Col span={24}>
+          <Card
+            title={<Title level={5} style={{ margin: 0 }}>课表预览</Title>}
+            extra={
+              <Space>
+                <Select
+                  value={previewClassId}
+                  placeholder="选择班级"
+                  options={gradeClassOptions}
+                  style={{ width: 220 }}
+                  onChange={(value) => {
+                    setPreviewClassId(value)
+                    loadClassPreview(value)
+                  }}
+                />
+                <Button onClick={() => loadClassPreview(previewClassId)} disabled={!previewClassId}>刷新预览</Button>
+              </Space>
+            }
+          >
+            <Table
+              rowKey="period_id"
+              loading={previewLoading}
+              pagination={false}
+              dataSource={previewRows}
+              columns={previewColumns}
+              locale={{ emptyText: '暂无课表数据（排课成功后可预览）' }}
+            />
           </Card>
         </Col>
       </Row>

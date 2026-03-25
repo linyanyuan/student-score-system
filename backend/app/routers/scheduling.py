@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from datetime import datetime
@@ -135,6 +135,7 @@ def _to_task_response(task: ScheduleTask) -> ScheduleTaskResponse:
 
 
 def _mark_task_failed(task_db: Session, task: ScheduleTask, message: str, *, error: str | None = None, progress: int | None = None) -> None:
+    task_db.rollback()
     task.status = "failed"
     task.message = message
     task.error = error or message
@@ -142,7 +143,6 @@ def _mark_task_failed(task_db: Session, task: ScheduleTask, message: str, *, err
         task.progress = max(0, min(99, progress))
     task.finished_at = datetime.now()
     task_db.commit()
-
 
 def _slot_weekday_period(slot: Any) -> tuple[int, int]:
     if isinstance(slot, dict):
@@ -461,6 +461,22 @@ def create_auto_schedule_task(
 ):
     school_id = _require_school_id(current_user)
 
+    active_task = (
+        db.query(ScheduleTask)
+        .filter(
+            ScheduleTask.school_id == school_id,
+            ScheduleTask.grade == grade,
+            ScheduleTask.status.in_(["pending", "running"]),
+        )
+        .order_by(ScheduleTask.id.desc())
+        .first()
+    )
+    if active_task:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"an active schedule task already exists: {active_task.id}",
+        )
+
     task = ScheduleTask(
         school_id=school_id,
         grade=grade,
@@ -495,3 +511,10 @@ def get_schedule_task(
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
     return _to_task_response(task)
+
+
+
+
+
+
+
