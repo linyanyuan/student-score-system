@@ -95,7 +95,7 @@ def _decode_lesson_plan_content(content: str | None) -> dict[str, Any]:
 
 def _require_school_id(current_user: User) -> int:
     if current_user.school_id is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="school_id is required")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="当前账户缺少学校信息")
     return current_user.school_id
 
 
@@ -161,7 +161,7 @@ def _run_schedule_task(task_id: int, session_factory: sessionmaker = SessionLoca
 
         task.status = "running"
         task.progress = 10
-        task.message = "loading scheduling context"
+        task.message = "正在加载排课数据"
         task.error = None
         task.started_at = datetime.now()
         task.finished_at = None
@@ -175,7 +175,7 @@ def _run_schedule_task(task_id: int, session_factory: sessionmaker = SessionLoca
         )
         class_ids = [item.id for item in classes]
         if not class_ids:
-            _mark_task_failed(task_db, task, "no classes found for target grade", progress=10)
+            _mark_task_failed(task_db, task, "目标年级未找到班级", progress=10)
             return
 
         periods = (
@@ -185,7 +185,7 @@ def _run_schedule_task(task_id: int, session_factory: sessionmaker = SessionLoca
             .all()
         )
         if not periods:
-            _mark_task_failed(task_db, task, "no active schedule periods found", progress=10)
+            _mark_task_failed(task_db, task, "未配置有效节次", progress=10)
             return
 
         lesson_plans = (
@@ -194,7 +194,7 @@ def _run_schedule_task(task_id: int, session_factory: sessionmaker = SessionLoca
             .all()
         )
         if not lesson_plans:
-            _mark_task_failed(task_db, task, "lesson plan not configured for grade", progress=10)
+            _mark_task_failed(task_db, task, "该年级未配置课时计划", progress=10)
             return
 
         arrangements = (
@@ -203,7 +203,7 @@ def _run_schedule_task(task_id: int, session_factory: sessionmaker = SessionLoca
             .all()
         )
         if not arrangements:
-            _mark_task_failed(task_db, task, "teaching arrangement not configured for grade", progress=10)
+            _mark_task_failed(task_db, task, "该年级未配置授课安排", progress=10)
             return
 
         lesson_plan_map = {item.subject_id: _decode_lesson_plan_content(item.content) for item in lesson_plans}
@@ -248,16 +248,16 @@ def _run_schedule_task(task_id: int, session_factory: sessionmaker = SessionLoca
                 }
 
         if not engine_tasks:
-            _mark_task_failed(task_db, task, "no schedulable tasks generated", progress=10)
+            _mark_task_failed(task_db, task, "未生成可排课任务", progress=10)
             return
 
         task.progress = 60
-        task.message = "solving"
+        task.message = "正在自动排课"
         task_db.commit()
 
         result = BacktrackingScheduleEngine().solve(tasks=engine_tasks, slots=slots)
         if not result.success:
-            _mark_task_failed(task_db, task, result.message or "schedule solve failed", progress=60)
+            _mark_task_failed(task_db, task, result.message or "排课求解失败", progress=60)
             return
 
         timetable_rows: list[ClassTimetable] = []
@@ -277,7 +277,7 @@ def _run_schedule_task(task_id: int, session_factory: sessionmaker = SessionLoca
             )
 
         if len(timetable_rows) != len(engine_tasks):
-            _mark_task_failed(task_db, task, "solver returned incomplete assignments", progress=60)
+            _mark_task_failed(task_db, task, "排课结果不完整", progress=60)
             return
 
         try:
@@ -285,12 +285,12 @@ def _run_schedule_task(task_id: int, session_factory: sessionmaker = SessionLoca
                 task_db.query(ClassTimetable).filter(ClassTimetable.class_id.in_(class_ids)).delete(synchronize_session=False)
                 task_db.add_all(timetable_rows)
         except Exception as exc:
-            _mark_task_failed(task_db, task, "failed to write timetable", error=str(exc), progress=60)
+            _mark_task_failed(task_db, task, "写入课表失败", error=str(exc), progress=60)
             return
 
         task.status = "success"
         task.progress = 100
-        task.message = "schedule generated"
+        task.message = "排课完成"
         task.result = json.dumps({"rows": len(timetable_rows)}, ensure_ascii=False)
         task.error = None
         task.finished_at = datetime.now()
@@ -298,7 +298,7 @@ def _run_schedule_task(task_id: int, session_factory: sessionmaker = SessionLoca
     except Exception as exc:
         task = task_db.query(ScheduleTask).filter(ScheduleTask.id == task_id).first()
         if task:
-            _mark_task_failed(task_db, task, "unexpected scheduling error", error=str(exc), progress=60)
+            _mark_task_failed(task_db, task, "排课过程中出现异常", error=str(exc), progress=60)
     finally:
         task_db.close()
 
@@ -337,7 +337,7 @@ def save_lesson_plan(
         if invalid_subject_ids:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"invalid subject ids for school: {invalid_subject_ids}",
+                detail=f"科目不属于当前学校: {invalid_subject_ids}",
             )
 
     unique_items: dict[int, LessonPlanConfig] = {}
@@ -424,11 +424,11 @@ def save_teaching_arrangement(
 
     for item in req.items:
         if item.class_id not in class_ids_for_grade:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid class id for grade: {item.class_id}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"班级不属于当前年级: {item.class_id}")
         if item.subject_id not in subject_ids_for_school:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid subject id for school: {item.subject_id}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"科目不属于当前学校: {item.subject_id}")
         if item.teacher_id not in teacher_ids_for_school:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"invalid teacher id for school: {item.teacher_id}")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"教师不属于当前学校: {item.teacher_id}")
 
     unique_items: dict[tuple[int, int], TeachingArrangementItem] = {}
     for item in req.items:
@@ -474,7 +474,7 @@ def create_auto_schedule_task(
     if active_task:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"an active schedule task already exists: {active_task.id}",
+            detail=f"当前年级已有进行中的排课任务: {active_task.id}",
         )
 
     task = ScheduleTask(
@@ -482,7 +482,7 @@ def create_auto_schedule_task(
         grade=grade,
         status="pending",
         progress=0,
-        message="queued",
+        message="排队中",
         context=json.dumps({"triggered_by": current_user.id}, ensure_ascii=False),
     )
     db.add(task)
@@ -509,8 +509,10 @@ def get_schedule_task(
         .first()
     )
     if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="task not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
     return _to_task_response(task)
+
+
 
 
 

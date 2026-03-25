@@ -44,6 +44,18 @@ const DEFAULT_ARR_ROW = {
   teacher_id: undefined,
 }
 
+const STATUS_LABEL = {
+  pending: '排队中',
+  running: '排课中',
+  success: '成功',
+  failed: '失败',
+}
+
+function formatStatus(status) {
+  return STATUS_LABEL[status] || status || '-'
+}
+
+
 function parseForbiddenPeriods(text) {
   if (!text?.trim()) return []
   return text
@@ -214,7 +226,7 @@ export default function ScheduleManage() {
     try {
       const res = await createAutoScheduleTask(grade.trim())
       const taskId = res.data.task_id
-      setTask({ id: taskId, status: res.data.status, progress: 0, message: 'queued' })
+      setTask({ id: taskId, status: res.data.status, progress: 0, message: '排队中' })
 
       if (pollingRef.current) clearInterval(pollingRef.current)
       pollingRef.current = setInterval(async () => {
@@ -392,7 +404,7 @@ export default function ScheduleManage() {
         <Card style={{ marginBottom: 16 }}>
           <Space>
             <Tag color={task.status === 'success' ? 'green' : task.status === 'failed' ? 'red' : 'blue'}>
-              {task.status}
+              {formatStatus(task.status)}
             </Tag>
             <Text>任务 #{task.id}</Text>
             <Text>进度 {task.progress ?? 0}%</Text>
@@ -465,3 +477,5 @@ export default function ScheduleManage() {
     </div>
   )
 }
+
+

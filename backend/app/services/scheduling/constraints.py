@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any, Mapping, Protocol
 
@@ -52,7 +52,7 @@ class ClassSlotConflictConstraint:
             if not other_task:
                 continue
             if other_task.get("class_id") == class_id and _slots_equal(other_slot, slot):
-                return f"class slot conflict with task {other_task_id}"
+                return f"班级时间冲突，任务 {other_task_id}"
         return None
 
 
@@ -67,7 +67,7 @@ class TeacherSlotConflictConstraint:
             if not other_task:
                 continue
             if other_task.get("teacher_id") == teacher_id and _slots_equal(other_slot, slot):
-                return f"teacher slot conflict with task {other_task_id}"
+                return f"教师时间冲突，任务 {other_task_id}"
         return None
 
 
@@ -89,7 +89,7 @@ class AvoidConsecutiveConstraint:
             shares_teacher = teacher_id is not None and other_task.get("teacher_id") == teacher_id
             shares_class = class_id is not None and other_task.get("class_id") == class_id
             if (shares_teacher or shares_class) and _is_consecutive(slot, other_slot):
-                return f"consecutive slot conflict with task {other_task_id}"
+                return f"连堂冲突，任务 {other_task_id}"
         return None
 
 
@@ -98,7 +98,7 @@ class ForbiddenPeriodsConstraint:
         forbidden_slots = task.get("forbidden_slots") or task.get("forbidden_periods") or []
         for forbidden in forbidden_slots:
             if _slots_equal(forbidden, slot):
-                return "slot is forbidden for this task"
+                return "命中禁排时段"
         return None
 
 
@@ -108,4 +108,5 @@ DEFAULT_CONSTRAINTS = [
     AvoidConsecutiveConstraint(),
     ForbiddenPeriodsConstraint(),
 ]
+
 

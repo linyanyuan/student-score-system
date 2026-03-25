@@ -1,7 +1,7 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from .constraints import Constraint, DEFAULT_CONSTRAINTS, _slots_equal
 
@@ -39,11 +39,11 @@ class BacktrackingScheduleEngine:
             return EngineResult(success=True, assignments=assignments.copy(), message="")
 
         if not diagnostics:
-            diagnostics.append("no feasible assignment found")
+            diagnostics.append("未找到可行排课方案")
         unscheduled = [str(task.get("id")) for task in ordered_tasks if str(task.get("id")) not in assignments]
         detail = "; ".join(diagnostics[:4])
         if unscheduled:
-            message = f"Unable to schedule tasks: {', '.join(unscheduled)}. {detail}"
+            message = f"以下任务无法排课：{', '.join(unscheduled)}。{detail}"
         else:
             message = detail
         return EngineResult(success=False, assignments=assignments.copy(), message=message)
@@ -99,14 +99,14 @@ class BacktrackingScheduleEngine:
         task_id = str(task.get("id"))
         candidates = self._candidate_slots(task, all_slots)
         if not candidates:
-            diagnostics.append(f"task {task_id} has no candidate slots")
+            diagnostics.append(f"任务 {task_id} 没有可用时间槽")
             return False
 
         for slot in candidates:
             reason = self._first_violation(task, slot, assignments, tasks_by_id)
             if reason:
                 if len(diagnostics) < 20:
-                    diagnostics.append(f"task {task_id} at slot {slot}: {reason}")
+                    diagnostics.append(f"任务 {task_id} 在时间槽 {slot} 冲突：{reason}")
                 continue
 
             assignments[task_id] = slot
