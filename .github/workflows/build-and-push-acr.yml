@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - dev
   workflow_dispatch:
 
 env:
@@ -44,7 +43,7 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
-            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.BACKEND_IMAGE }}:latest
+            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.BACKEND_IMAGE }}:latest-prod
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v6
@@ -53,7 +52,7 @@ jobs:
           push: true
           tags: |
             ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
-            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.FRONTEND_IMAGE }}:latest-prod
 
       - name: Publish deployment summary
         shell: bash
