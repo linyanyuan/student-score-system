@@ -234,12 +234,24 @@ def create_schedule_task(..., background_tasks: BackgroundTasks):
     return {"task_id": task.id, "status": task.status}
 ```
 
-- [ ] **Step 6: 运行 API 测试并通过**
+- [ ] **Step 6: 加入权限与学校隔离测试（防越权）**
+
+```python
+def test_school_admin_cannot_read_other_school_task(self):
+    resp = self.client_as_school_a.get(f"/api/schedule/tasks/{self.school_b_task_id}")
+    self.assertEqual(resp.status_code, 404)
+
+def test_teacher_cannot_create_schedule_task(self):
+    resp = self.client_as_teacher.post("/api/schedule/auto/高一")
+    self.assertEqual(resp.status_code, 403)
+```
+
+- [ ] **Step 7: 运行 API 测试并通过**
 
 Run: `python -m unittest tests.test_scheduling_api -v`
 Expected: PASS
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add backend/app/schemas/scheduling.py backend/app/routers/scheduling.py backend/app/main.py backend/tests/test_scheduling_api.py
@@ -278,12 +290,20 @@ def get_teacher_timetable(...):
     return TeacherTimetableResponse(items=[...])
 ```
 
-- [ ] **Step 4: 运行测试并通过**
+- [ ] **Step 4: 加入跨校越权读取测试**
+
+```python
+def test_school_admin_cannot_read_other_school_class_timetable(self):
+    resp = self.client_as_school_a.get(f"/api/timetable/class/{self.school_b_class_id}")
+    self.assertEqual(resp.status_code, 404)
+```
+
+- [ ] **Step 5: 运行测试并通过**
 
 Run: `python -m unittest tests.test_timetable_api -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add backend/app/routers/timetable.py backend/app/schemas/scheduling.py backend/app/main.py backend/tests/test_timetable_api.py
@@ -324,7 +344,18 @@ with db.begin():
 Run: `python -m unittest tests.test_scheduling_api.SchedulingApiTests.test_successful_rerun_overwrites_grade_timetable_atomically -v`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: 增加失败任务不污染旧课表测试**
+
+```python
+def test_failed_task_keeps_previous_timetable_unchanged(self):
+    self.create_task_and_wait(valid_input=True)
+    before = self.query_grade_timetable_rows()
+    self.create_task_and_wait(valid_input=False)  # expect failed
+    after = self.query_grade_timetable_rows()
+    self.assertEqual(before, after)
+```
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add backend/app/routers/scheduling.py backend/tests/test_scheduling_api.py
