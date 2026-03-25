@@ -67,6 +67,10 @@
 
 - 使用 Alembic 新增以上表与索引。
 - 本阶段保留 `teacher_schedules` 表，避免破坏旧功能；新功能优先读写 `class_timetables`。
+- 自动排课“重跑写入策略”：同一学校同一年级每次成功排课均采用“整年级覆盖”模式。
+  - 写入前删除该年级所有班级在 `class_timetables` 的历史记录。
+  - 失败任务不写入任何新课表（保持旧课表不变）。
+  - 该策略用于保证任务幂等与重试可预测性。
 
 ## 5. API 设计
 
@@ -85,6 +89,62 @@
 - `GET /api/schedule/tasks/{task_id}`
   - 动作：查询任务状态、进度、结果摘要、错误信息。
 
+### 5.5 请求与响应最小契约
+
+1) `POST /api/schedule/lesson-plan`（批量保存）请求体
+
+```json
+{
+  "grade": "高一",
+  "items": [
+    {
+      "subject_id": 1,
+      "weekly_hours": 5,
+      "priority": 1,
+      "avoid_consecutive": true,
+      "forbidden_periods": [[1, 1], [5, 6]]
+    }
+  ]
+}
+```
+
+2) `POST /api/schedule/teaching-arrangement`（批量保存）请求体
+
+```json
+{
+  "grade": "高一",
+  "items": [
+    {
+      "class_id": 11,
+      "subject_id": 1,
+      "teacher_id": 1001
+    }
+  ]
+}
+```
+
+3) `POST /api/schedule/auto/{grade}` 响应体
+
+```json
+{
+  "task_id": 9527,
+  "status": "pending"
+}
+```
+
+4) `GET /api/schedule/tasks/{task_id}` 响应体
+
+```json
+{
+  "id": 9527,
+  "status": "running",
+  "progress": 42,
+  "message": "正在排高一(3)班-数学",
+  "result": null,
+  "error": null
+}
+```
+
 ### 5.4 课表查询
 - `GET /api/timetable/class/{class_id}`（班级周课表）
 - `GET /api/timetable/teacher/{teacher_id}`（教师周课表，由班级课表聚合）
@@ -93,6 +153,10 @@
 
 ### 6.1 输入
 - 指定学校与年级下：班级列表、节次列表、课时计划、授课安排。
+- 时段表示统一为 `(weekday, period_id)`：
+  - `weekday` 取值 1-5（后续可扩展）。
+  - `period_id` 来源于 `schedule_periods.id`。
+  - `forbidden_periods_json` 也采用 `[weekday, period_id]` 表示，避免“节次序号”和“节次主键”混用。
 
 ### 6.2 求解流程
 1. 校验输入完整性（缺课时计划/授课安排直接失败）。
@@ -100,6 +164,11 @@
 3. 排序策略：优先级小者先排，再按候选时段数升序（MRV 思路）。
 4. 回溯分配：尝试候选时段，逐条执行约束检查。
 5. 成功则写入 `class_timetables`；失败则输出冲突诊断。
+
+写入原子性要求：
+- 仅当完整解成功时执行数据库写入。
+- 写入必须在单事务内完成（先删后写同一事务）。
+- 任一写入异常触发回滚，并将任务标记为 `failed`，禁止产生半成品课表。
 
 ### 6.3 约束接口（可扩展）
 - 抽象接口：`Constraint.check(state, assignment) -> (ok, reason)`。
@@ -165,3 +234,13 @@
 - 将任务执行迁移到 DB 队列 Worker 或 Redis 队列。
 - 引入更强启发式策略与可中断重试机制。
 - 第二阶段实现调课申请/审批流，与班级课表统一。
+
+## 11. 任务进度语义
+
+- `progress` 为 0-100 的整数。
+- 建议更新粒度：每成功分配一条课时任务后按比例更新一次；失败时固定为当前值并写入 `error_json`。
+- 状态机：
+  - `pending`: progress=0
+  - `running`: progress in [1, 99]
+  - `success`: progress=100
+  - `failed`: progress in [0, 99]（以实际失败位置为准）
