@@ -1,0 +1,20 @@
+services:
+  backend:
+    image: ${ACR_REGISTRY}/${ACR_NAMESPACE}/student-score-backend:${IMAGE_TAG}
+    container_name: student-score-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/student_score.db:/app/student_score.db
+    environment:
+      DATABASE_URL: sqlite:///./student_score.db
+    restart: unless-stopped
+
+  frontend:
+    image: ${ACR_REGISTRY}/${ACR_NAMESPACE}/student-score-frontend:${IMAGE_TAG}
+    container_name: student-score-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
