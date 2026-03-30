@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 
 import {
+  buildConfigWarnings,
+  buildSummaryCounts,
   buildTimetableRows,
   formatForbiddenPeriods,
   parseForbiddenPeriods,
@@ -24,4 +26,19 @@ assert.deepEqual(
       day_5: '',
     },
   ],
+)
+
+assert.deepEqual(
+  buildSummaryCounts({ plans: [1], arrangements: [], teacherConstraints: [], locks: [] }),
+  {
+    plans: 1,
+    arrangements: 0,
+    teacherConstraints: 0,
+    locks: 0,
+  },
+)
+
+assert.deepEqual(
+  buildConfigWarnings({ plans: [], arrangements: [], teacherConstraints: [], locks: [] }),
+  ['尚未配置课时计划', '尚未配置任课安排'],
 )

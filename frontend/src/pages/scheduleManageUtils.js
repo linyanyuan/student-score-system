@@ -51,3 +51,26 @@ export function buildTimetableRows(items) {
     return row
   })
 }
+
+export function buildSummaryCounts({ plans, arrangements, teacherConstraints, locks }) {
+  return {
+    plans: plans.length,
+    arrangements: arrangements.length,
+    teacherConstraints: teacherConstraints.length,
+    locks: locks.length,
+  }
+}
+
+export function buildConfigWarnings({ plans, arrangements }) {
+  const warnings = []
+
+  if (!plans.length) {
+    warnings.push('尚未配置课时计划')
+  }
+
+  if (!arrangements.length) {
+    warnings.push('尚未配置任课安排')
+  }
+
+  return warnings
+}
