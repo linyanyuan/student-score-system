@@ -1,15 +1,435 @@
-import { useState, useEffect } from 'react'
-import { Typography, Card, Row, Col, Table, Tag, Button, Modal, Form, Input, InputNumber, Select, DatePicker, message, Checkbox, TimePicker } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined } from '@ant-design/icons'
+import { useState, useEffect, useMemo } from 'react'
+import { Typography, Card, Row, Col, Table, Tag, Button, Modal, Form, Input, InputNumber, Select, DatePicker, message, Checkbox, TimePicker, Tabs, Space, Empty, Spin } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CalendarOutlined, UserOutlined, TeamOutlined } from '@ant-design/icons'
 import { useAuth } from '../contexts/AuthContext'
 import { getDailyQuote, getMySchedule, getMemos, createMemo, updateMemo, deleteMemo, updateMemoStatus, getSchedulePeriods, createSchedulePeriod, createOrUpdateSchedule, deleteSchedule, updateSchedulePeriod } from '../api/schedule'
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
+import { getClassTimetable, getTeacherTimetable, getMyTimetable } from '../api/scheduling'
+import { getAccounts } from '../api/account'
 import dayjs from 'dayjs'
 import { buildSchedulePeriodPayload, isCreatingPeriod } from './homePeriodUtils'
 
-const { Title, Paragraph } = Typography
+const { Title, Paragraph, Text } = Typography
 const { TextArea } = Input
+
+// ── 课表展示工具函数 ──────────────────────────────────────────────────────────
+function buildTimetableRows(items, periods) {
+  // periods: [{id, name, start_time, end_time}]
+  // items: [{weekday, period_id, period_name, subject_name, class_name, teacher_name}]
+  const periodList = periods.length > 0
+    ? periods
+    : Array.from(new Set(items.map(i => i.period_id))).sort((a, b) => a - b)
+        .map(id => { const it = items.find(i => i.period_id === id); return { id, name: it?.period_name || `第${id}节`, start_time: '', end_time: '' } })
+  return periodList.map(p => {
+    const row = { key: String(p.id), period: p.name, time: p.start_time && p.end_time ? `${p.start_time}-${p.end_time}` : '' }
+    for (let day = 1; day <= 5; day++) {
+      row[`day${day}`] = items.find(i => i.period_id === p.id && i.weekday === day) || null
+    }
+    return row
+  })
+}
+
+const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五']
+const DAY_COLORS = ['#eff6ff', '#f0fdf4', '#fdf4ff', '#fff7ed', '#fafaf9']
+const DAY_BORDER_COLORS = ['#bfdbfe', '#bbf7d0', '#e9d5ff', '#fed7aa', '#e4e4e7']
+const DAY_TEXT_COLORS = ['#1d4ed8', '#15803d', '#7e22ce', '#c2410c', '#3f3f46']
+
+const SUBJECT_PALETTE = [
+  { bg: '#eff6ff', border: '#bfdbfe', text: '#1d4ed8' },
+  { bg: '#f0fdf4', border: '#bbf7d0', text: '#15803d' },
+  { bg: '#fdf4ff', border: '#e9d5ff', text: '#7e22ce' },
+  { bg: '#fff7ed', border: '#fed7aa', text: '#c2410c' },
+  { bg: '#fafaf9', border: '#e4e4e7', text: '#3f3f46' },
+  { bg: '#fef2f2', border: '#fecaca', text: '#b91c1c' },
+  { bg: '#ecfdf5', border: '#a7f3d0', text: '#065f46' },
+  { bg: '#fefce8', border: '#fde68a', text: '#92400e' },
+]
+
+function subjectColor(subjectName) {
+  if (!subjectName) return SUBJECT_PALETTE[4]
+  let h = 0
+  for (let i = 0; i < subjectName.length; i++) h = (h * 31 + subjectName.charCodeAt(i)) >>> 0
+  return SUBJECT_PALETTE[h % SUBJECT_PALETTE.length]
+}
+
+function makeTimetableColumns(showClass = false, showTeacher = true) {
+  return [
+    {
+      title: <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700, letterSpacing: '0.05em' }}>节次</span>,
+      dataIndex: 'period',
+      key: 'period',
+      width: 72,
+      fixed: 'left',
+      render: v => <span style={{ fontWeight: 700, fontSize: 13, color: '#334155' }}>{v}</span>
+    },
+    {
+      title: <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 700, letterSpacing: '0.05em' }}>时间</span>,
+      dataIndex: 'time',
+      key: 'time',
+      width: 98,
+      fixed: 'left',
+      render: v => <span style={{ color: '#94a3b8', fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>{v}</span>
+    },
+    ...DAY_NAMES.map((day, idx) => ({
+      title: (
+        <div style={{ textAlign: 'center' }}>
+          <span style={{
+            display: 'inline-block',
+            padding: '2px 10px',
+            borderRadius: 20,
+            background: DAY_COLORS[idx],
+            color: DAY_TEXT_COLORS[idx],
+            fontSize: 12,
+            fontWeight: 700,
+            border: `1px solid ${DAY_BORDER_COLORS[idx]}`,
+          }}>{day}</span>
+        </div>
+      ),
+      dataIndex: `day${idx + 1}`,
+      key: `day${idx + 1}`,
+      render: (item) => {
+        if (!item) return (
+          <div style={{
+            minHeight: 52,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: '#e2e8f0',
+            fontSize: 18,
+            userSelect: 'none',
+          }}>·</div>
+        )
+        const c = subjectColor(item.subject_name)
+        return (
+          <div style={{
+            minHeight: 52,
+            padding: '6px 8px',
+            borderRadius: 8,
+            background: c.bg,
+            border: `1px solid ${c.border}`,
+            lineHeight: 1.45,
+          }}>
+            <div style={{ fontWeight: 700, color: c.text, fontSize: 13 }}>{item.subject_name || '—'}</div>
+            {showClass && item.class_name && (
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                <TeamOutlined style={{ marginRight: 3 }} />{item.class_name}
+              </div>
+            )}
+            {showTeacher && item.teacher_name && (
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: 1 }}>
+                <UserOutlined style={{ marginRight: 3 }} />{item.teacher_name}
+              </div>
+            )}
+          </div>
+        )
+      }
+    }))
+  ]
+}
+
+// ── 课表展示子组件 ────────────────────────────────────────────────────────────
+function TimetableView({ items, periods, showClass = false, showTeacher = true, loading = false, emptyText = '暂无课表数据' }) {
+  const rows = useMemo(() => buildTimetableRows(items, periods), [items, periods])
+  const columns = useMemo(() => makeTimetableColumns(showClass, showTeacher), [showClass, showTeacher])
+  return (
+    <Spin spinning={loading}>
+      <Table
+        rowKey="key"
+        dataSource={rows}
+        columns={columns}
+        pagination={false}
+        size="small"
+        scroll={{ x: 680 }}
+        locale={{ emptyText: <Empty description={emptyText} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+        className="timetable-pro"
+      />
+    </Spin>
+  )
+}
+
+// ── 管理员课表区域 ─────────────────────────────────────────────────────────────
+function AdminTimetableSection({ classes, teachers }) {
+  const [filterGrade, setFilterGrade] = useState('')
+  const [filterClassId, setFilterClassId] = useState(null)
+  const [filterTeacherId, setFilterTeacherId] = useState(null)
+  const [timetableItems, setTimetableItems] = useState([])
+  const [periods, setPeriods] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [activeMode, setActiveMode] = useState('class') // 'class' | 'teacher'
+
+  useEffect(() => {
+    getSchedulePeriods().then(r => setPeriods(r.data || [])).catch(() => {})
+  }, [])
+
+  const gradeOptions = useMemo(() => {
+    const grades = Array.from(new Set(classes.map(c => c.grade).filter(Boolean))).sort()
+    return grades.map(g => ({ label: g, value: g }))
+  }, [classes])
+
+  const classOptions = useMemo(() => {
+    const list = filterGrade ? classes.filter(c => c.grade === filterGrade) : classes
+    return list.map(c => ({ label: filterGrade ? c.name : `${c.grade ? c.grade + '-' : ''}${c.name}`, value: c.id }))
+  }, [classes, filterGrade])
+
+  const teacherOptions = useMemo(() => teachers.map(t => ({ label: t.username, value: t.id })), [teachers])
+
+  const loadClassTimetable = async (classId) => {
+    if (!classId) return
+    setLoading(true)
+    try {
+      const res = await getClassTimetable(classId)
+      setTimetableItems(res.data?.items || [])
+    } catch { message.error('加载班级课表失败') }
+    finally { setLoading(false) }
+  }
+
+  const loadTeacherTimetable = async (teacherId) => {
+    if (!teacherId) return
+    setLoading(true)
+    try {
+      const res = await getTeacherTimetable(teacherId)
+      setTimetableItems(res.data?.items || [])
+    } catch { message.error('加载教师课表失败') }
+    finally { setLoading(false) }
+  }
+
+  const handleClassChange = (id) => {
+    setFilterClassId(id)
+    setFilterTeacherId(null)
+    setActiveMode('class')
+    setTimetableItems([])
+    if (id) loadClassTimetable(id)
+  }
+
+  const handleTeacherChange = (id) => {
+    setFilterTeacherId(id)
+    setFilterClassId(null)
+    setActiveMode('teacher')
+    setTimetableItems([])
+    if (id) loadTeacherTimetable(id)
+  }
+
+  const handleGradeChange = (g) => {
+    setFilterGrade(g)
+    setFilterClassId(null)
+    setFilterTeacherId(null)
+    setTimetableItems([])
+  }
+
+  const showClass = activeMode === 'teacher'
+  const showTeacher = activeMode === 'class'
+
+  const selectedLabel = filterClassId
+    ? classOptions.find(o => o.value === filterClassId)?.label
+    : filterTeacherId
+    ? teacherOptions.find(o => o.value === filterTeacherId)?.label
+    : null
+
+  const emptyText = !filterClassId && !filterTeacherId ? '请选择班级或教师查看课表' : '暂无课表数据'
+
+  return (
+    <Card
+      className="timetable-section-card"
+      styles={{ body: { padding: 0 } }}
+      style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid #e8edf5', boxShadow: '0 4px 24px rgba(15,23,42,0.07)' }}
+    >
+      {/* 顶栏 */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 12,
+        padding: '16px 20px',
+        background: 'linear-gradient(135deg,#f8faff 0%,#eef4ff 100%)',
+        borderBottom: '1px solid #e8edf5',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <CalendarOutlined style={{ fontSize: 18, color: '#2563eb' }} />
+          <span style={{ fontWeight: 700, fontSize: 16, color: '#0f172a' }}>课表总览</span>
+          {selectedLabel && (
+            <Tag color="blue" style={{ marginLeft: 4, fontWeight: 600 }}>{selectedLabel}</Tag>
+          )}
+        </div>
+        <Space wrap>
+          <Select
+            allowClear
+            placeholder="年级"
+            options={gradeOptions}
+            value={filterGrade || undefined}
+            style={{ width: 110 }}
+            onChange={handleGradeChange}
+            suffixIcon={<span style={{ fontSize: 11, color: '#94a3b8' }}>▾</span>}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder={filterGrade ? `${filterGrade} 班级` : '选择班级'}
+            options={classOptions}
+            value={filterClassId || undefined}
+            style={{ width: 160 }}
+            onChange={handleClassChange}
+            suffixIcon={<TeamOutlined style={{ color: filterClassId ? '#2563eb' : '#94a3b8' }} />}
+          />
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            placeholder="选择教师"
+            options={teacherOptions}
+            value={filterTeacherId || undefined}
+            style={{ width: 150 }}
+            onChange={handleTeacherChange}
+            suffixIcon={<UserOutlined style={{ color: filterTeacherId ? '#2563eb' : '#94a3b8' }} />}
+          />
+        </Space>
+      </div>
+      {/* 课表主体 */}
+      <div style={{ padding: '16px 20px' }}>
+        <TimetableView
+          items={timetableItems}
+          periods={periods}
+          showClass={showClass}
+          showTeacher={showTeacher}
+          loading={loading}
+          emptyText={emptyText}
+        />
+      </div>
+    </Card>
+  )
+}
+
+// ── 教师课表区域 ───────────────────────────────────────────────────────────────
+function TeacherTimetableSection({ user, teacherClasses }) {
+  const [myItems, setMyItems] = useState([])
+  const [classItems, setClassItems] = useState([])
+  const [periods, setPeriods] = useState([])
+  const [myLoading, setMyLoading] = useState(false)
+  const [classLoading, setClassLoading] = useState(false)
+  const [selectedClassId, setSelectedClassId] = useState(null)
+
+  useEffect(() => {
+    getSchedulePeriods().then(r => setPeriods(r.data || [])).catch(() => {})
+    setMyLoading(true)
+    getMyTimetable()
+      .then(r => setMyItems(r.data?.items || []))
+      .catch(() => {})
+      .finally(() => setMyLoading(false))
+  }, [])
+
+  const classOptions = useMemo(() => teacherClasses.map(c => ({ label: `${c.grade ? c.grade + '-' : ''}${c.name}`, value: c.id })), [teacherClasses])
+
+  const handleClassChange = async (id) => {
+    setSelectedClassId(id)
+    setClassItems([])
+    if (!id) return
+    setClassLoading(true)
+    try {
+      const res = await getClassTimetable(id)
+      setClassItems(res.data?.items || [])
+    } catch { message.error('加载班级课表失败') }
+    finally { setClassLoading(false) }
+  }
+
+  const tabItems = [
+    {
+      key: 'my',
+      label: <span><UserOutlined /> 我的课表</span>,
+      children: (
+        <div style={{ padding: '16px 20px' }}>
+          <TimetableView items={myItems} periods={periods} showClass={true} showTeacher={false} loading={myLoading} emptyText="暂无课表，课表发布后将在此显示" />
+        </div>
+      ),
+    },
+    {
+      key: 'class',
+      label: <span><TeamOutlined /> 班级课表</span>,
+      children: (
+        <div style={{ padding: '16px 20px' }}>
+          <Select
+            allowClear
+            placeholder="选择所教班级"
+            options={classOptions}
+            value={selectedClassId || undefined}
+            style={{ width: 200, marginBottom: 16 }}
+            onChange={handleClassChange}
+            suffixIcon={<TeamOutlined style={{ color: selectedClassId ? '#2563eb' : '#94a3b8' }} />}
+          />
+          <TimetableView items={classItems} periods={periods} showClass={false} showTeacher={true} loading={classLoading} emptyText={selectedClassId ? '暂无课表数据' : '请选择班级'} />
+        </div>
+      ),
+    }
+  ]
+
+  return (
+    <Card
+      style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid #e8edf5', boxShadow: '0 4px 24px rgba(15,23,42,0.07)', padding: 0 }}
+      styles={{ body: { padding: 0 } }}
+    >
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '16px 20px',
+        background: 'linear-gradient(135deg,#f8faff 0%,#eef4ff 100%)',
+        borderBottom: '1px solid #e8edf5',
+      }}>
+        <CalendarOutlined style={{ fontSize: 18, color: '#2563eb' }} />
+        <span style={{ fontWeight: 700, fontSize: 16, color: '#0f172a' }}>我的课表</span>
+      </div>
+      <Tabs defaultActiveKey="my" items={tabItems} style={{ margin: 0 }} tabBarStyle={{ paddingLeft: 20, marginBottom: 0 }} />
+    </Card>
+  )
+}
+
+// ── 学生课表区域 ───────────────────────────────────────────────────────────────
+function StudentTimetableSection({ user }) {
+  const [items, setItems] = useState([])
+  const [periods, setPeriods] = useState([])
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    getSchedulePeriods().then(r => setPeriods(r.data || [])).catch(() => {})
+    setLoading(true)
+    getMyTimetable()
+      .then(r => setItems(r.data?.items || []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  return (
+    <Card
+      style={{ borderRadius: 16, overflow: 'hidden', border: '1px solid #e8edf5', boxShadow: '0 4px 24px rgba(15,23,42,0.07)' }}
+      styles={{ body: { padding: 0 } }}
+    >
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '16px 20px',
+        background: 'linear-gradient(135deg,#f8faff 0%,#eef4ff 100%)',
+        borderBottom: '1px solid #e8edf5',
+      }}>
+        <CalendarOutlined style={{ fontSize: 18, color: '#2563eb' }} />
+        <span style={{ fontWeight: 700, fontSize: 16, color: '#0f172a' }}>班级课表</span>
+        {user?.student_name && (
+          <Tag color="blue" style={{ marginLeft: 4 }}>{user.student_name}</Tag>
+        )}
+      </div>
+      <div style={{ padding: '16px 20px' }}>
+        {!user?.student_id ? (
+          <Empty description="账号未绑定学生信息" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        ) : (
+          <TimetableView items={items} periods={periods} showClass={false} showTeacher={true} loading={loading} emptyText="暂无课表，课表发布后将在此显示" />
+        )}
+      </div>
+    </Card>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function Home() {
   const { user } = useAuth()
@@ -19,6 +439,7 @@ export default function Home() {
   const [memos, setMemos] = useState([])
   const [classes, setClasses] = useState([])
   const [subjects, setSubjects] = useState([])
+  const [teachers, setTeachers] = useState([])
   const [memoModalVisible, setMemoModalVisible] = useState(false)
   const [scheduleModalVisible, setScheduleModalVisible] = useState(false)
   const [periodModalVisible, setPeriodModalVisible] = useState(false)
@@ -29,9 +450,8 @@ export default function Home() {
   const [scheduleForm] = Form.useForm()
   const [periodForm] = Form.useForm()
 
-  const roleLabel = user?.role === 'admin' ? '管理员' : user?.role === 'school_admin' ? '学校管理员' : user?.role === 'teacher' ? '教师' : '学生'
   const showScheduleSection = ['school_admin', 'teacher', 'student'].includes(user?.role)
-  const canLoadScheduleEditorMeta = user?.role === 'teacher'
+  const canLoadScheduleEditorMeta = user?.role === 'teacher' || user?.role === 'school_admin'
 
   useEffect(() => {
     loadData()
@@ -54,14 +474,6 @@ export default function Home() {
       console.error('加载备忘录失败:', error)
     }
     if (showScheduleSection) {
-      // 加载课表
-      try {
-        const scheduleRes = await getMySchedule()
-        setSchedule(scheduleRes.data)
-      } catch (error) {
-        console.error('加载课表失败:', error)
-      }
-
       // 加载节次
       try {
         const periodsRes = await getSchedulePeriods()
@@ -85,6 +497,25 @@ export default function Home() {
         setSubjects(subjectsRes.data)
       } catch (error) {
         console.error('加载科目失败:', error)
+      }
+    }
+
+    if (user?.role === 'school_admin') {
+      try {
+        const accountsRes = await getAccounts()
+        setTeachers((accountsRes.data || []).filter(u => u.role === 'teacher'))
+      } catch (error) {
+        console.error('加载教师失败:', error)
+      }
+    }
+
+    if (user?.role === 'teacher') {
+      // 教师课表由 TeacherTimetableSection 内部加载
+      try {
+        const scheduleRes = await getMySchedule()
+        setSchedule(scheduleRes.data)
+      } catch (error) {
+        console.error('加载课表失败:', error)
       }
     }
   }
@@ -370,34 +801,26 @@ export default function Home() {
       <Row gutter={24}>
         {/* 课表区域 - 仅 school_admin / teacher / student 可见 */}
         {showScheduleSection && (
-          <Col xs={24} lg={14}>
-            <Card
-              title="本周课表"
-              extra={
-                user?.role === 'school_admin' && (
-                  <Button
-                    icon={<SettingOutlined />}
-                    onClick={handleManagePeriods}
-                  >
-                    节次管理
-                  </Button>
-                )
-              }
-              style={{ marginBottom: 24 }}
-            >
-              <Table
-                dataSource={scheduleTable}
-                columns={scheduleColumns}
-                pagination={false}
-                size="small"
-                rowKey="period"
+          <Col xs={24} xl={15}>
+            {user?.role === 'school_admin' && (
+              <AdminTimetableSection
+                classes={classes}
+                teachers={teachers}
+                periods={periods}
+                onManagePeriods={handleManagePeriods}
               />
-            </Card>
+            )}
+            {user?.role === 'teacher' && (
+              <TeacherTimetableSection user={user} teacherClasses={classes} />
+            )}
+            {user?.role === 'student' && (
+              <StudentTimetableSection user={user} />
+            )}
           </Col>
         )}
 
         {/* 备忘录区域 - 所有角色可见 */}
-        <Col xs={24} lg={showScheduleSection ? 10 : 24}>
+        <Col xs={24} xl={showScheduleSection ? 9 : 24}>
           <Card
             title="备忘录"
             extra={

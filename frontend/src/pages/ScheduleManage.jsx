@@ -12,8 +12,10 @@ import {
   Switch,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd'
+import { QuestionCircleOutlined } from '@ant-design/icons'
 
 import request from '../api/request'
 import { getClasses } from '../api/class'
@@ -105,6 +107,30 @@ export default function ScheduleManage() {
   const subjectOptions = useMemo(() => subjects.map((s) => ({ label: s.name, value: s.id })), [subjects])
   const classOptions = useMemo(() => classes.map((c) => ({ label: `${c.grade}-${c.name}`, value: c.id })), [classes])
   const teacherOptions = useMemo(() => teachers.map((t) => ({ label: t.username, value: t.id })), [teachers])
+  const gradeRankMap = useMemo(
+    () => ({
+      一年级: 1,
+      二年级: 2,
+      三年级: 3,
+      四年级: 4,
+      五年级: 5,
+      六年级: 6,
+      七年级: 7,
+      八年级: 8,
+      九年级: 9,
+      高一: 10,
+      高二: 11,
+      高三: 12,
+    }),
+    []
+  )
+  const gradeOptions = useMemo(
+    () =>
+      Array.from(new Set(classes.map((c) => c.grade).filter(Boolean)))
+        .sort((a, b) => (gradeRankMap[a] ?? 999) - (gradeRankMap[b] ?? 999) || a.localeCompare(b, 'zh-Hans-CN'))
+        .map((item) => ({ label: item, value: item })),
+    [classes, gradeRankMap]
+  )
   const gradeClassOptions = useMemo(
     () => classes.filter((c) => c.grade === grade).map((c) => ({ label: `${c.grade}-${c.name}`, value: c.id })),
     [classes, grade]
@@ -159,6 +185,13 @@ export default function ScheduleManage() {
       if (pollingRef.current) clearInterval(pollingRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (gradeOptions.length === 0) return
+    if (!grade || !gradeOptions.some((item) => item.value === grade)) {
+      setGrade(gradeOptions[0].value)
+    }
+  }, [gradeOptions, grade])
 
   const loadGradeConfig = async () => {
     if (!grade?.trim()) return
@@ -324,7 +357,14 @@ export default function ScheduleManage() {
       ),
     },
     {
-      title: '禁排(周-节,逗号分隔)',
+      title: (
+        <Space size={4}>
+          <span>禁排</span>
+          <Tooltip title="格式：周-节，多个用英文逗号分隔。示例：1-1,1-2,5-6。">
+            <QuestionCircleOutlined style={{ color: '#8c8c8c', fontSize: 14 }} />
+          </Tooltip>
+        </Space>
+      ),
       dataIndex: 'forbidden_periods_text',
       render: (_, row, idx) => (
         <Input
@@ -393,12 +433,66 @@ export default function ScheduleManage() {
 
   return (
     <div style={{ padding: 8 }}>
-      <Space style={{ marginBottom: 16 }}>
-        <Text>年级</Text>
-        <Input value={grade} onChange={(e) => setGrade(e.target.value)} style={{ width: 160 }} />
-        <Button onClick={loadGradeConfig} loading={loading}>加载配置</Button>
-        <Button type="primary" onClick={startSchedule}>开始排课</Button>
-      </Space>
+      <Card style={{ marginBottom: 16 }}>
+        <Title level={5} style={{ marginTop: 0 }}>使用说明</Title>
+        <ul style={{ margin: 0, paddingLeft: 20, lineHeight: 1.9 }}>
+          <li>先选择或输入年级，点击“加载配置”读取该年级已有的课时计划和授课安排。</li>
+          <li>在“课时计划”里设置每个科目的周课时、优先级和禁排规则，并保存。</li>
+          <li>在“授课安排”里配置班级-科目-教师关系，并保存。</li>
+          <li>确认配置后点击右上角“开始排课”，系统会自动生成课表并展示任务状态。</li>
+          <li>排课成功后可在“课表预览”中按班级查看结果。</li>
+          <li>禁排规则格式：周-节，多个规则用英文逗号分隔，例如：1-1,1-2,5-6。</li>
+        </ul>
+      </Card>
+
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Row gutter={[12, 8]} align="middle" wrap={false}>
+          <Col flex="none">
+            <Text strong>年级</Text>
+          </Col>
+          <Col flex="220px">
+            {gradeOptions.length > 0 ? (
+              <Select
+                value={grade}
+                options={gradeOptions}
+                style={{ width: '100%' }}
+                placeholder="请选择年级"
+                showSearch
+                optionFilterProp="label"
+                onChange={(value) => setGrade(value)}
+              />
+            ) : (
+              <Input
+                value={grade}
+                style={{ width: '100%' }}
+                placeholder="可手动输入年级，如八年级"
+                onChange={(e) => setGrade(e.target.value)}
+              />
+            )}
+          </Col>
+          <Col flex="none">
+            <Button onClick={loadGradeConfig} loading={loading}>加载配置</Button>
+          </Col>
+          <Col flex="auto">
+            <Card
+            extra={
+              <Space>
+              <Button type="primary" onClick={startSchedule} style={{ minWidth: 108 }}>开始排课</Button>
+              </Space>
+            }
+            style={{ marginBottom: 16 }}
+          >
+            <Table rowKey={(_, idx) => `plan-${idx}`} pagination={false} dataSource={plans} columns={planColumns} />
+          </Card>
+          </Col>
+        </Row>
+      </Card>
+
+      {gradeOptions.length === 0 && (
+        <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+          当前未读取到可选年级，可手动输入；如需下拉候选，请先在“班级管理”维护班级年级数据。
+        </Text>
+      )}
 
       {task && (
         <Card style={{ marginBottom: 16 }}>

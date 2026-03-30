@@ -43,6 +43,15 @@ const buildAccountPayload = (values) => ({
   student_id: values.role === 'student' ? values.student_id ?? null : null,
 });
 
+const getAccountErrorMessage = (err) => {
+  const raw = err?.message || err?.response?.data?.detail || '操作失败';
+  const text = String(raw);
+  if (text.includes('username already exists') || text.includes('用户名已存在')) {
+    return '用户名已存在，请更换后重试';
+  }
+  return text;
+};
+
 export default function AccountManage() {
   const [accounts, setAccounts] = useState([]);
   const [schools, setSchools] = useState([]);
@@ -131,9 +140,7 @@ export default function AccountManage() {
       setSelectedIds([]);
       fetchAccounts();
     } catch (err) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail);
-      }
+      message.error(getAccountErrorMessage(err));
     }
   };
 
@@ -144,7 +151,7 @@ export default function AccountManage() {
       setSelectedIds((ids) => ids.filter((item) => item !== id));
       fetchAccounts();
     } catch (err) {
-      message.error(err?.response?.data?.detail || '删除失败');
+      message.error(getAccountErrorMessage(err));
     }
   };
 
@@ -156,7 +163,7 @@ export default function AccountManage() {
       setSelectedIds([]);
       fetchAccounts();
     } catch (err) {
-      message.error(err?.response?.data?.detail || '批量删除失败');
+      message.error(getAccountErrorMessage(err));
     }
   };
 

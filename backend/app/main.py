@@ -1,6 +1,7 @@
 ﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app import models  # noqa: F401
 from app.database import Base, engine, ensure_sqlite_user_schema_compat
 from app.routers import auth
 from app.routers import classes, subjects, teacher_classes, custom_fields, students
@@ -11,9 +12,8 @@ from app.routers import seats, schools, accounts
 Base.metadata.create_all(bind=engine)
 ensure_sqlite_user_schema_compat(engine)
 
-app = FastAPI(title="瀛︾敓鎴愮哗绠＄悊绯荤粺", version="1.0.0")
+app = FastAPI(title="学生成绩管理系统", version="1.0.0")
 
-# CORS 閰嶇疆
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -25,10 +25,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 健康检查端点
+
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
 
 app.include_router(auth.router)
 app.include_router(classes.router)

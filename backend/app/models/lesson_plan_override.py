@@ -1,25 +1,28 @@
-from datetime import datetime
+﻿from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
 
 
-class ClassTimetable(Base):
-    __tablename__ = "class_timetables"
+class LessonPlanOverride(Base):
+    __tablename__ = "lesson_plan_overrides"
     __table_args__ = (
-        UniqueConstraint("class_id", "weekday", "period_id", name="uq_class_timetable_slot"),
-        UniqueConstraint("teacher_id", "weekday", "period_id", name="uq_teacher_timetable_slot"),
+        UniqueConstraint(
+            "school_id",
+            "grade",
+            "class_id",
+            "subject_id",
+            name="uq_lesson_plan_override_scope",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id"), nullable=False)
+    grade: Mapped[str] = mapped_column(Text, nullable=False)
     class_id: Mapped[int] = mapped_column(Integer, ForeignKey("classes.id"), nullable=False)
-    teacher_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False)
     subject_id: Mapped[int] = mapped_column(Integer, ForeignKey("subjects.id"), nullable=False)
-    period_id: Mapped[int] = mapped_column(Integer, ForeignKey("schedule_periods.id"), nullable=False)
-    weekday: Mapped[int] = mapped_column(Integer, nullable=False)
+    config: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
-

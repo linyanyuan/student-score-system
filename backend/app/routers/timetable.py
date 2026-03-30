@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.dependencies import get_current_user, get_db, get_accessible_class_ids
 from app.models.class_ import Class
 from app.models.class_timetable import ClassTimetable
+from app.models.schedule_period import SchedulePeriod
 from app.models.student import Student
 from app.models.subject import Subject
 from app.models.user import User
@@ -19,10 +20,12 @@ def _build_timetable_items(db: Session, rows: list[ClassTimetable]) -> list[Time
     class_ids = sorted({row.class_id for row in rows})
     subject_ids = sorted({row.subject_id for row in rows})
     teacher_ids = sorted({row.teacher_id for row in rows})
+    period_ids = sorted({row.period_id for row in rows})
 
     class_name_map = {item.id: item.name for item in db.query(Class).filter(Class.id.in_(class_ids)).all()}
     subject_name_map = {item.id: item.name for item in db.query(Subject).filter(Subject.id.in_(subject_ids)).all()}
     teacher_name_map = {item.id: item.username for item in db.query(User).filter(User.id.in_(teacher_ids)).all()}
+    period_name_map = {item.id: item.name for item in db.query(SchedulePeriod).filter(SchedulePeriod.id.in_(period_ids)).all()}
 
     items: list[TimetableItem] = []
     for row in rows:
@@ -30,6 +33,7 @@ def _build_timetable_items(db: Session, rows: list[ClassTimetable]) -> list[Time
             TimetableItem(
                 weekday=row.weekday,
                 period_id=row.period_id,
+                period_name=period_name_map.get(row.period_id),
                 class_id=row.class_id,
                 class_name=class_name_map.get(row.class_id),
                 subject_id=row.subject_id,
@@ -102,3 +106,38 @@ def get_teacher_timetable(
         .all()
     )
     return TimetableResponse(items=_build_timetable_items(db, rows))
+
+
+@router.get("/my", response_model=TimetableResponse)
+def get_my_timetable(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return the current user's own timetable.
+    - teacher: all classes they teach
+    - student: their class timetable
+    """
+    if current_user.role == "teacher":
+        rows = (
+            db.query(ClassTimetable)
+            .filter(ClassTimetable.teacher_id == current_user.id)
+            .order_by(ClassTimetable.weekday, ClassTimetable.period_id)
+            .all()
+        )
+        return TimetableResponse(items=_build_timetable_items(db, rows))
+
+    if current_user.role == "student":
+        if current_user.student_id is None:
+            return TimetableResponse(items=[])
+        student = db.query(Student).filter(Student.id == current_user.student_id).first()
+        if not student:
+            return TimetableResponse(items=[])
+        rows = (
+            db.query(ClassTimetable)
+            .filter(ClassTimetable.class_id == student.class_id)
+            .order_by(ClassTimetable.weekday, ClassTimetable.period_id)
+            .all()
+        )
+        return TimetableResponse(items=_build_timetable_items(db, rows))
+
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="forbidden")

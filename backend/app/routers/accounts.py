@@ -95,7 +95,7 @@ def list_accounts(
 @router.post("", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_account(req: CreateAccountRequest, _: User = Depends(require_admin), db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == req.username).first():
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="username already exists")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名已存在")
     if not db.query(School).filter(School.id == req.school_id).first():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="school does not exist")
 
@@ -128,7 +128,7 @@ def update_account(user_id: int, req: UpdateAccountRequest, _: User = Depends(re
 
     if req.username and req.username != user.username:
         if db.query(User).filter(User.username == req.username).first():
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="username already exists")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="用户名已存在")
 
     effective_school_id = req.school_id if req.school_id is not None else user.school_id
     if effective_school_id is not None and not db.query(School).filter(School.id == effective_school_id).first():

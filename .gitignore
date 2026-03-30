@@ -30,7 +30,17 @@ Thumbs.db
 node_modules/
 dist/
 .omc/
-
+# Test smoke files (temporary, not tracked)
+frontend/src/**/homeChineseContent.test.mjs
+frontend/src/**/mojibakeSmoke.test.mjs
+frontend/src/**/pageSyntaxSmoke.test.mjs
+frontend/src/**/scheduleManageContent.test.mjs
+frontend/src/**/scheduleManageRegression.test.mjs
+frontend/src/**/tmp_*.txt
+# skills
+.codex/
+.claude/
+.superpowers
 # Environment
 .env
 .env.local
@@ -41,4 +51,14 @@ __pycache__/
 __pycache__/
 *.pyc
 *.db
-.worktrees/
+# Temporary debug/fix scripts
+check_escapes.py
+check_lines.py
+detect_enc.py
+fix_gbk.py
+fix_unicode.py
+fix_unicode2.py
+linecheck.txt
+out.txt
+probe.txt
+frontend/tmp_utf8_probe.txt
