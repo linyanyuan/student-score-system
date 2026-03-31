@@ -768,10 +768,11 @@ export default function ScheduleManage() {
         </Row>
         <SectionCard eyebrow="CONTROL NOTES" title="控制台提示" description="帮助教务老师在高频操作时快速定位关键入口。">
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
-            <Space align="start" size={10}><AppstoreOutlined style={{ color: pageTokens.primary, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>课时计划和任课安排是自动排课的核心输入，建议优先完成。</Text></Space>
-            <Space align="start" size={10}><WarningOutlined style={{ color: pageTokens.warning, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>教师约束和锁定课位属于精细化控制，可在基础配置稳定后逐步补齐。</Text></Space>
-            <Space align="start" size={10}><EyeOutlined style={{ color: pageTokens.success, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>发布前建议对照“当前草案课表”和“正式课表预览”，避免误覆盖已发布结果。</Text></Space>
-            <Space align="start" size={10}><TableOutlined style={{ color: pageTokens.danger, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>当前页不展示历史草案列表，只聚焦当前任务生成的草案闭环。</Text></Space>
+            <Space align="start" size={10}><AppstoreOutlined style={{ color: pageTokens.primary, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>第一步：快速操作，选择年级，刷新配置进行加载已保存的排课配置(没保存过没有数据)</Text></Space>
+            <Space align="start" size={10}><AppstoreOutlined style={{ color: pageTokens.primary, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>第二步：在排课配置工作区配置核心规则：课时计划和任课安排是自动排课的核心输入，建议优先完成。教师约束和锁定课位属于精细化控制，可在基础配置稳定后逐步补齐。</Text></Space>
+            <Space align="start" size={10}><AppstoreOutlined style={{ color: pageTokens.primary, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>第三步：核心规则配置完成后建议点击快速操作中的保存全部。</Text></Space>
+            <Space align="start" size={10}><EyeOutlined style={{ color: pageTokens.success, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>第四步：生成草案后，发布前建议对照“当前草案课表”和“正式课表预览”，避免误覆盖已发布结果。</Text></Space>
+            <Space align="start" size={10}><TableOutlined style={{ color: pageTokens.danger, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>第五步：发布当前草案，课表生成。</Text></Space>
             </Space>
         </SectionCard>
         <Spin spinning={configLoading}>
