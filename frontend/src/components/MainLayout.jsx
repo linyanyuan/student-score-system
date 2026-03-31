@@ -1,5 +1,5 @@
 ﻿import { useState } from 'react'
-import { Layout, Menu, Button, Typography, theme, Modal } from 'antd'
+import { Layout, Menu, Button, Typography, Modal } from 'antd'
 import {
   HomeOutlined,
   TeamOutlined,
@@ -70,9 +70,6 @@ export default function MainLayout() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  const {
-    token: { colorBgContainer },
-  } = theme.useToken()
   const normalizedRole = normalizeRole(user?.role)
 
   const menuItems = allMenuItems
@@ -80,27 +77,11 @@ export default function MainLayout() {
     .map(({ key, icon, label }) => ({ key, icon, label }))
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider trigger={null} collapsible collapsed={collapsed}>
-        <div
-          style={{
-            height: 32,
-            margin: 16,
-            color: '#fff',
-            textAlign: 'center',
-            fontSize: collapsed ? 14 : 16,
-            fontWeight: 'bold',
-            lineHeight: '32px',
-            whiteSpace: 'nowrap',
-            overflow: 'hidden',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-          }}
-        >
-          <ReadOutlined style={{ fontSize: 20 }} />
-          {!collapsed && '学生成绩管理系统'}
+    <Layout className="workspace-shell">
+      <Sider className="workspace-sider" trigger={null} collapsible collapsed={collapsed}>
+        <div className={`workspace-sider-brand${collapsed ? ' is-collapsed' : ''}`}>
+          <ReadOutlined className="workspace-sider-logo" />
+          {!collapsed && <span>学生成绩管理系统</span>}
         </div>
         <Menu
           theme="dark"
@@ -108,30 +89,25 @@ export default function MainLayout() {
           selectedKeys={[location.pathname]}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
+          className="workspace-sider-menu"
         />
       </Sider>
-      <Layout>
-        <Header
-          style={{
-            padding: '0 16px',
-            background: colorBgContainer,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
+      <Layout className="workspace-main">
+        <Header className="workspace-topbar">
           <Button
             type="text"
             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
             onClick={() => setCollapsed(!collapsed)}
+            className="workspace-topbar-trigger"
           />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <Typography.Text>
+          <div className="workspace-topbar-actions">
+            <Typography.Text className="workspace-topbar-user">
               {user?.username} ({roleLabel[normalizedRole] || user?.role})
             </Typography.Text>
             <Button
               type="text"
               icon={<LogoutOutlined />}
+              className="workspace-topbar-logout"
               onClick={() => {
                 Modal.confirm({
                   title: '退出系统',
@@ -146,16 +122,10 @@ export default function MainLayout() {
             </Button>
           </div>
         </Header>
-        <Content
-          style={{
-            margin: 16,
-            padding: 24,
-            background: colorBgContainer,
-            borderRadius: 8,
-            minHeight: 280,
-          }}
-        >
-          <Outlet />
+        <Content className="workspace-content-shell">
+          <div className="workspace-content-inner">
+            <Outlet />
+          </div>
         </Content>
       </Layout>
     </Layout>

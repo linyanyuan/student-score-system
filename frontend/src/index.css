@@ -10,6 +10,16 @@
   --schedule-accent: #f59e0b;
   --schedule-ink: #0f172a;
   --schedule-muted: #475569;
+  --workspace-shell-bg: radial-gradient(circle at top left, #f8fbff 0%, var(--schedule-bg) 48%, #e7eefb 100%);
+  --workspace-panel: var(--schedule-panel);
+  --workspace-panel-border: var(--schedule-panel-border);
+  --workspace-primary: var(--schedule-primary);
+  --workspace-primary-deep: var(--schedule-primary-deep);
+  --workspace-accent: var(--schedule-accent);
+  --workspace-ink: var(--schedule-ink);
+  --workspace-muted: var(--schedule-muted);
+  --workspace-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+  --workspace-section-shadow: 0 16px 40px rgba(15, 23, 42, 0.06);
 }
 
 body {
@@ -18,6 +28,252 @@ body {
   font-family: 'Manrope', sans-serif;
   background: radial-gradient(circle at top left, #f8fbff 0%, var(--schedule-bg) 48%, #e7eefb 100%);
   color: var(--schedule-ink);
+}
+
+.workspace-shell {
+  min-height: 100vh;
+  background: var(--workspace-shell-bg);
+}
+
+.workspace-shell .ant-layout {
+  background: transparent;
+}
+
+.workspace-sider {
+  box-shadow: 8px 0 24px rgba(15, 23, 42, 0.12);
+}
+
+.workspace-sider-brand {
+  height: 40px;
+  margin: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.workspace-sider-brand.is-collapsed {
+  justify-content: center;
+}
+
+.workspace-sider-logo {
+  font-size: 20px;
+}
+
+.workspace-topbar {
+  height: 64px;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.84);
+  border-bottom: 1px solid var(--workspace-panel-border);
+  backdrop-filter: blur(12px);
+}
+
+.workspace-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.workspace-topbar-user {
+  color: var(--workspace-ink);
+}
+
+.workspace-content-shell {
+  padding: 24px;
+}
+
+.workspace-content-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-height: calc(100vh - 120px);
+}
+
+.workspace-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.workspace-page-header {
+  border: 1px solid var(--workspace-panel-border);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(237, 245, 255, 0.96) 55%, rgba(255, 247, 237, 0.92) 100%);
+  border-radius: 28px;
+  padding: 24px;
+  box-shadow: var(--workspace-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.workspace-page-header-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workspace-page-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.workspace-page-header-eyebrow {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--workspace-primary);
+}
+
+.workspace-page-header-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--workspace-ink);
+}
+
+.workspace-page-header-description {
+  margin: 0;
+  max-width: 720px;
+  color: var(--workspace-muted);
+  line-height: 1.6;
+}
+
+.workspace-page-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workspace-page-header-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--workspace-muted);
+}
+
+.workspace-page-header-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workspace-metric-card {
+  border: 1px solid var(--workspace-panel-border);
+  background: var(--workspace-panel);
+  border-radius: 22px;
+  padding: 18px 20px;
+  box-shadow: var(--workspace-section-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  height: 100%;
+}
+
+.workspace-metric-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--workspace-primary);
+  font-size: 18px;
+}
+
+.workspace-metric-label {
+  font-size: 13px;
+  color: var(--workspace-muted);
+}
+
+.workspace-metric-value {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--workspace-ink);
+}
+
+.workspace-metric-helper {
+  font-size: 12px;
+  color: var(--workspace-muted);
+}
+
+.workspace-metric-footer {
+  font-size: 12px;
+  color: var(--workspace-muted);
+}
+
+.workspace-section-card {
+  border: 1px solid var(--workspace-panel-border);
+  background: var(--workspace-panel);
+  border-radius: 24px;
+  padding: 22px;
+  box-shadow: var(--workspace-section-shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.workspace-section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.workspace-section-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workspace-section-eyebrow {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--workspace-primary);
+}
+
+.workspace-section-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--workspace-ink);
+}
+
+.workspace-section-description {
+  margin: 0;
+  color: var(--workspace-muted);
+  line-height: 1.6;
+}
+
+.workspace-section-extra {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.workspace-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .schedule-workbench-page {
@@ -297,6 +553,34 @@ body {
 }
 
 @media (max-width: 900px) {
+  .workspace-topbar {
+    padding: 0 16px;
+  }
+
+  .workspace-content-shell {
+    padding: 16px;
+  }
+
+  .workspace-content-inner {
+    min-height: auto;
+  }
+
+  .workspace-page-header {
+    padding: 20px;
+  }
+
+  .workspace-section-card {
+    padding: 18px;
+  }
+
+  .workspace-page-header-title {
+    font-size: 22px;
+  }
+
+  .workspace-section-title {
+    font-size: 18px;
+  }
+
   .schedule-hero-card,
   .schedule-main-grid,
   .schedule-guide-grid,
