@@ -5,8 +5,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { getDailyQuote, getMySchedule, getMemos, createMemo, updateMemo, deleteMemo, updateMemoStatus, getSchedulePeriods, createSchedulePeriod, createOrUpdateSchedule, deleteSchedule, updateSchedulePeriod } from '../api/schedule'
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
-import { getClassTimetable, getTeacherTimetable, getMyTimetable } from '../api/scheduling'
-import { getAccounts } from '../api/account'
+import { getClassTimetable, getTeacherTimetable, getMyTimetable, getScheduleTeachers } from '../api/scheduling'
 import dayjs from 'dayjs'
 import { buildSchedulePeriodPayload, isCreatingPeriod } from './homePeriodUtils'
 
@@ -502,8 +501,8 @@ export default function Home() {
 
     if (user?.role === 'school_admin') {
       try {
-        const accountsRes = await getAccounts()
-        setTeachers((accountsRes.data || []).filter(u => u.role === 'teacher'))
+        const teachersRes = await getScheduleTeachers()
+        setTeachers(teachersRes.data || [])
       } catch (error) {
         console.error('加载教师失败:', error)
       }
