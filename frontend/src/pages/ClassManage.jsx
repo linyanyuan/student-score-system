@@ -6,6 +6,24 @@ import WorkspacePageHeader from '../components/workspace/WorkspacePageHeader'
 import WorkspaceMetricCard from '../components/workspace/WorkspaceMetricCard'
 import WorkspaceSectionCard from '../components/workspace/WorkspaceSectionCard'
 
+const GRADE_RANK = {
+  一年级: 1,
+  二年级: 2,
+  三年级: 3,
+  四年级: 4,
+  五年级: 5,
+  六年级: 6,
+  七年级: 7,
+  八年级: 8,
+  九年级: 9,
+  高一: 10,
+  高二: 11,
+  高三: 12,
+}
+
+const compareGrade = (left, right) =>
+  (GRADE_RANK[left] ?? 999) - (GRADE_RANK[right] ?? 999) || String(left || '').localeCompare(String(right || ''), 'zh-Hans-CN')
+
 const metricGridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -100,7 +118,7 @@ export default function ClassManage() {
 
   const gradeOptions = Array.from(
     new Set(data.map((item) => item.grade).filter(Boolean)),
-  ).sort((left, right) => left.localeCompare(right, 'zh-Hans-CN'))
+  ).sort(compareGrade)
   const normalizedKeyword = keyword.trim().toLowerCase()
   const filteredRows = data.filter((item) => {
     const matchesGrade = !gradeFilter || item.grade === gradeFilter
@@ -139,6 +157,13 @@ export default function ClassManage() {
   const emptyCopy = data.length === 0
     ? '暂无班级数据，先新建班级。'
     : '没有匹配的班级，请调整筛选条件。'
+
+  useEffect(() => {
+    if (!gradeFilter) return
+    if (!gradeOptions.includes(gradeFilter)) {
+      setGradeFilter('')
+    }
+  }, [gradeFilter, gradeOptions])
 
   return (
     <div className="workspace-page">

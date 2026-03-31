@@ -7,8 +7,12 @@ const includesEither = (escaped) => source.includes(escaped) || source.includes(
 
 assert.match(source, /WorkspacePageHeader/)
 assert.match(source, /WorkspaceSectionCard/)
+assert.match(source, /dataSource=\{filteredRows\}/)
+assert.match(source, /gradeOptions/)
+assert.match(source, /setGradeFilter/)
 assert.ok(includesEither(String.raw`\u73ed\u7ea7\u603b\u6570`), 'Class manage should include class total copy')
 assert.ok(includesEither(String.raw`\u6309\u5e74\u7ea7\u7b5b\u9009`), 'Class manage should include grade filter copy')
+assert.ok(includesEither(String.raw`\u7b5b\u9009\u7ed3\u679c`), 'Class manage should include filtered result copy')
 assert.ok(includesEither(String.raw`\u65b0\u5efa\u73ed\u7ea7`), 'Class manage should include create-class action copy')
 
 console.log('class manage workspace content checks passed')
