@@ -39,7 +39,6 @@ const DAY_BORDER_COLORS = ['#bfdbfe', '#bbf7d0', '#e9d5ff', '#fed7aa', '#e4e4e7'
 const DAY_TEXT_COLORS = ['#1d4ed8', '#15803d', '#7e22ce', '#c2410c', '#3f3f46']
 const ROLE_LABELS = { school_admin: '学校管理员', teacher: '教师', student: '学生' }
 const metricGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }
-const quickGridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }
 const panelStyle = {
   border: '1px solid rgba(191, 219, 254, 0.9)',
   borderRadius: 20,
@@ -162,26 +161,6 @@ function TimetableView({ items, periods, showClass = false, showTeacher = true, 
         className="timetable-pro"
       />
     </Spin>
-  )
-}
-
-function QuickEntryCard({ icon, title, description, metricLabel, metricValue, actionLabel, onAction, accent }) {
-  return (
-    <Card hoverable style={{ ...panelStyle, height: '100%' }} styles={{ body: { padding: 20, height: '100%' } }}>
-      <Space direction="vertical" size={16} style={{ width: '100%', height: '100%', justifyContent: 'space-between' }}>
-        <Space direction="vertical" size={14} style={{ width: '100%' }}>
-          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-            <div style={{ width: 44, height: 44, borderRadius: 14, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: accent.background, color: accent.color, fontSize: 18 }}>{icon}</div>
-            <Tag color="blue">{metricLabel} {metricValue}</Tag>
-          </Space>
-          <div>
-            <div style={{ color: '#10243e', fontWeight: 700, fontSize: 17, marginBottom: 6 }}>{title}</div>
-            <Text style={{ color: '#5f728c', lineHeight: 1.7 }}>{description}</Text>
-          </div>
-        </Space>
-        <Button type="primary" onClick={onAction}>{actionLabel}</Button>
-      </Space>
-    </Card>
   )
 }
 
@@ -794,16 +773,10 @@ export default function Home() {
       ]
   const heroTitle = isSchoolAdmin ? '学校管理工作台' : isTeacher ? '教师工作台' : isStudent ? '学生工作台' : '校园工作台'
   const heroDescription = isSchoolAdmin
-    ? '把快捷入口、课表总览、备忘录和节次维护收拢到同一个工作台，让日常管理节奏更连贯。'
+    ? '把课表总览、备忘录和节次维护收拢到同一个工作台，让日常管理节奏更连贯。'
     : isTeacher
       ? '围绕我的课表、班级切换和备忘录组织工作区，保持教师端只做高频查看与跟进。'
       : '围绕班级课表、学籍绑定状态和个人备忘录组织工作台，进入系统后就能看到最相关的信息。'
-  const quickEntries = [
-    { key: 'class', icon: <TeamOutlined />, title: '班级管理', description: '快速维护班级信息，进入统一工作台继续完成新增、编辑和清理。', metricLabel: '班级', metricValue: `${classes.length} 个`, actionLabel: '进入班级管理', onAction: () => navigate('/classes'), accent: { background: '#e9f2ff', color: '#145fc6' } },
-    { key: 'subject', icon: <BookOutlined />, title: '科目管理', description: '查看现有科目配置，继续维护课程覆盖范围和基础属性。', metricLabel: '科目', metricValue: `${subjects.length} 门`, actionLabel: '进入科目管理', onAction: () => navigate('/subjects'), accent: { background: '#eff8ef', color: '#18794e' } },
-    { key: 'exam', icon: <ReadOutlined />, title: '考试管理', description: '从首页直接跳到考试工作区，继续维护考试安排与说明信息。', metricLabel: '备忘', metricValue: `${memos.length} 条`, actionLabel: '进入考试管理', onAction: () => navigate('/exams'), accent: { background: '#fff7e6', color: '#b76c07' } },
-    { key: 'schedule', icon: <CalendarOutlined />, title: '排课管理', description: '继续查看排课任务与正式课表，同时保留首页的节次维护入口。', metricLabel: '节次', metricValue: `${periods.length} 个`, actionLabel: '进入排课管理', onAction: () => navigate('/schedule-manage'), accent: { background: '#fdf2f2', color: '#c2410c' } },
-  ]
 
   // 构建课表数据结构
   const scheduleTable = periods.map(period => {
@@ -900,92 +873,75 @@ export default function Home() {
         </Space>
       </WorkspacePageHeader>
 
-      {user?.role === 'school_admin' && (
+      <div className="home-focus-grid">
+        {showScheduleSection && (
+          <WorkspaceSectionCard
+            eyebrow="Timetable Workspace"
+            title="课表总览"
+            description={isSchoolAdmin ? '按班级或教师查看课表，并把排课入口留在同一工作台。' : isTeacher ? '围绕我的课表和班级课表组织教师工作区。' : '围绕班级课表和学籍绑定状态组织学生工作区。'}
+            extra={isSchoolAdmin ? (
+              <Space wrap>
+                <Button icon={<SettingOutlined />} onClick={handleManagePeriods}>节次管理</Button>
+                <Button type="primary" onClick={() => navigate('/schedule-manage')}>进入排课管理</Button>
+              </Space>
+            ) : null}
+          >
+            {user?.role === 'school_admin' && <AdminTimetableSection classes={classes} teachers={teachers} />}
+            {user?.role === 'teacher' && <TeacherTimetableSection user={user} teacherClasses={classes} />}
+            {user?.role === 'student' && <StudentTimetableSection user={user} />}
+          </WorkspaceSectionCard>
+        )}
+
         <WorkspaceSectionCard
-          eyebrow="Quick Entry"
-          title="快捷入口"
-          description="把学校管理员高频会进入的管理模块放在同一工作台里，减少页面切换成本。"
+          eyebrow="Memo Workspace"
+          title="备忘录"
+          description="保留原有备忘录增删改查流程，并把近期事项放进首页工作台作为持续跟进区。"
           extra={
-            <Button icon={<SettingOutlined />} onClick={handleManagePeriods}>
-              节次管理
+            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateMemo}>
+              新建备忘录
             </Button>
           }
         >
-          <div style={quickGridStyle}>
-            {quickEntries.map(item => (
-              <QuickEntryCard key={item.key} icon={item.icon} title={item.title} description={item.description} metricLabel={item.metricLabel} metricValue={item.metricValue} actionLabel={item.actionLabel} onAction={item.onAction} accent={item.accent} />
-            ))}
-          </div>
-        </WorkspaceSectionCard>
-      )}
-
-      {showScheduleSection && (
-        <WorkspaceSectionCard
-          eyebrow="Timetable Workspace"
-          title="课表总览"
-          description={isSchoolAdmin ? '按班级或教师查看课表，并把排课入口留在同一工作台。' : isTeacher ? '围绕我的课表和班级课表组织教师工作区。' : '围绕班级课表和学籍绑定状态组织学生工作区。'}
-          extra={isSchoolAdmin ? (
-            <Space wrap>
-              <Button icon={<SettingOutlined />} onClick={handleManagePeriods}>节次管理</Button>
-              <Button type="primary" onClick={() => navigate('/schedule-manage')}>进入排课管理</Button>
-            </Space>
-          ) : null}
-        >
-          {user?.role === 'school_admin' && <AdminTimetableSection classes={classes} teachers={teachers} />}
-          {user?.role === 'teacher' && <TeacherTimetableSection user={user} teacherClasses={classes} />}
-          {user?.role === 'student' && <StudentTimetableSection user={user} />}
-        </WorkspaceSectionCard>
-      )}
-
-      <WorkspaceSectionCard
-        eyebrow="Memo Workspace"
-        title="备忘录"
-        description="保留原有备忘录增删改查流程，并把近期事项放进首页工作台作为持续跟进区。"
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateMemo}>
-            新建备忘录
-          </Button>
-        }
-      >
-        {memos.length === 0 ? (
-          <div style={{ ...panelStyle, padding: 40, textAlign: 'center', color: '#64748b' }}>
-            暂无待办事项
-          </div>
-        ) : (
-          <Space direction="vertical" size={12} style={{ width: '100%' }}>
-            {memos.map(memo => (
-              <Card
-                key={memo.id}
-                size="small"
-                style={panelStyle}
-                actions={[
-                  <EditOutlined key="edit" onClick={() => handleEditMemo(memo)} />,
-                  <DeleteOutlined key="delete" onClick={() => handleDeleteMemo(memo.id)} />
-                ]}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-                  <Checkbox
-                    checked={memo.status === 'completed'}
-                    onChange={() => handleToggleMemoStatus(memo)}
-                  />
-                  <span style={{ marginLeft: 8, flex: 1, textDecoration: memo.status === 'completed' ? 'line-through' : 'none' }}>
-                    {memo.title}
-                  </span>
-                  <Tag color={getPriorityColor(memo.priority)}>{getPriorityLabel(memo.priority)}</Tag>
-                </div>
-                {memo.description && (
-                  <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{memo.description}</div>
-                )}
-                {memo.due_date && (
-                  <div style={{ fontSize: 12, color: dayjs(memo.due_date).isBefore(dayjs()) ? 'red' : '#999' }}>
-                    截止: {memo.due_date}
+          {memos.length === 0 ? (
+            <div style={{ ...panelStyle, padding: 40, textAlign: 'center', color: '#64748b' }}>
+              暂无待办事项
+            </div>
+          ) : (
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              {memos.map(memo => (
+                <Card
+                  key={memo.id}
+                  size="small"
+                  style={panelStyle}
+                  actions={[
+                    <EditOutlined key="edit" onClick={() => handleEditMemo(memo)} />,
+                    <DeleteOutlined key="delete" onClick={() => handleDeleteMemo(memo.id)} />
+                  ]}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                    <Checkbox
+                      checked={memo.status === 'completed'}
+                      onChange={() => handleToggleMemoStatus(memo)}
+                    />
+                    <span style={{ marginLeft: 8, flex: 1, textDecoration: memo.status === 'completed' ? 'line-through' : 'none' }}>
+                      {memo.title}
+                    </span>
+                    <Tag color={getPriorityColor(memo.priority)}>{getPriorityLabel(memo.priority)}</Tag>
                   </div>
-                )}
-              </Card>
-            ))}
-          </Space>
-        )}
-      </WorkspaceSectionCard>
+                  {memo.description && (
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{memo.description}</div>
+                  )}
+                  {memo.due_date && (
+                    <div style={{ fontSize: 12, color: dayjs(memo.due_date).isBefore(dayjs()) ? 'red' : '#999' }}>
+                      截止: {memo.due_date}
+                    </div>
+                  )}
+                </Card>
+              ))}
+            </Space>
+          )}
+        </WorkspaceSectionCard>
+      </div>
 
       {/* 备忘录编辑弹窗 */}
       <Modal
