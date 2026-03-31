@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 
 from app.routers.analysis import (
     _calc_rates,
@@ -50,7 +50,7 @@ class ThreeRatesOneScoreTests(unittest.TestCase):
         self.assertEqual(result[1]["total_score"], 327.0)
 
     def test_subject_full_score_mapping(self):
-        self.assertEqual(_subject_full_score_for_three_rates("语文"), 100.0)
+        self.assertEqual(_subject_full_score_for_three_rates("语文"), 120.0)
         self.assertEqual(_subject_full_score_for_three_rates("数学"), 120.0)
         self.assertEqual(_subject_full_score_for_three_rates("英语"), 120.0)
         self.assertEqual(_subject_full_score_for_three_rates("物理"), 60.0)
@@ -99,17 +99,17 @@ class ThreeRatesOneScoreTests(unittest.TestCase):
         self.assertEqual(result[2]["excellent_count"], 1)
         self.assertEqual(result[2]["excellent_rate_score"], 100.0)
 
-    def test_calc_three_rate_scores_chinese_uses_100_full_score(self):
+    def test_calc_three_rate_scores_chinese_uses_120_full_score(self):
         class_scores = {
             1: [95, 88, 76, 60],
             2: [98, 92, 80, 70],
         }
 
         result = _calc_three_rate_scores(class_scores, subject_name="语文")
-        self.assertEqual(result[1]["excellent_count"], 1)
-        self.assertEqual(result[2]["excellent_count"], 2)
-        self.assertEqual(result[1]["excellent_rate_score"], 50.0)
-        self.assertEqual(result[2]["excellent_rate_score"], 100.0)
+        self.assertEqual(result[1]["excellent_count"], 0)
+        self.assertEqual(result[2]["excellent_count"], 0)
+        self.assertEqual(result[1]["excellent_rate_score"], 0.0)
+        self.assertEqual(result[2]["excellent_rate_score"], 0.0)
 
     def test_calc_three_rate_scores_normalizes_against_best_class(self):
         class_scores = {

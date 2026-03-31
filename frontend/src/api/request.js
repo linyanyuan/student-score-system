@@ -1,4 +1,11 @@
 ﻿import axios from 'axios'
+import {
+  clearSessionAuth,
+  getToken,
+  isSessionIdleExpired,
+  recordSessionActivity,
+  redirectToLogin,
+} from '../utils/session'
 
 const request = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '',
@@ -7,9 +14,15 @@ const request = axios.create({
 
 request.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token')
+    const token = getToken()
     if (token) {
+      if (isSessionIdleExpired()) {
+        clearSessionAuth()
+        redirectToLogin('idle')
+        return Promise.reject(new Error('登录已失效，请重新登录'))
+      }
       config.headers.Authorization = `Bearer ${token}`
+      recordSessionActivity()
     }
     return config
   },
@@ -17,16 +30,17 @@ request.interceptors.request.use(
 )
 
 request.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    recordSessionActivity()
+    return response
+  },
   (error) => {
     if (error.response?.status === 401) {
-      // 登录接口 401 直接返回，不跳转。
       if (error.config?.url?.includes('/api/auth/login')) {
         return Promise.reject(error)
       }
-      // 其他接口 401 清理 token 并跳转登录页。
-      localStorage.removeItem('token')
-      window.location.href = '/login'
+      clearSessionAuth()
+      redirectToLogin('unauthorized')
       return Promise.reject(error)
     }
 

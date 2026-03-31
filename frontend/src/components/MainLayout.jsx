@@ -1,5 +1,5 @@
 ﻿import { useState } from 'react'
-import { Layout, Menu, Button, Typography, Modal } from 'antd'
+import { Layout, Menu, Button, Typography, Modal,ConfigProvider } from 'antd'
 import {
   HomeOutlined,
   TeamOutlined,
@@ -25,7 +25,7 @@ const { Header, Sider, Content } = Layout
 const allMenuItems = [
   { key: '/', icon: <HomeOutlined />, label: '首页', roles: ['admin', 'school_admin', 'teacher', 'student'] },
   { key: '/schools', icon: <BankOutlined />, label: '学校管理', roles: ['admin'] },
-  { key: '/accounts', icon: <UserOutlined />, label: '账户管理', roles: ['admin'] },
+  { key: '/accounts', icon: <UserOutlined />, label: '账户管理', roles: ['admin', 'school_admin'] },
   { key: '/classes', icon: <TeamOutlined />, label: '班级管理', roles: ['school_admin'] },
   { key: '/subjects', icon: <BookOutlined />, label: '科目管理', roles: ['school_admin'] },
   { key: '/exams', icon: <FileTextOutlined />, label: '考试管理', roles: ['school_admin'] },
@@ -132,3 +132,4 @@ export default function MainLayout() {
     </Layout>
   )
 }
+
