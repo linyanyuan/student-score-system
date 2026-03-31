@@ -119,9 +119,10 @@ export default function ClassManage() {
   const gradeOptions = Array.from(
     new Set(data.map((item) => item.grade).filter(Boolean)),
   ).sort(compareGrade)
+  const activeGradeFilter = gradeFilter && gradeOptions.includes(gradeFilter) ? gradeFilter : ''
   const normalizedKeyword = keyword.trim().toLowerCase()
   const filteredRows = data.filter((item) => {
-    const matchesGrade = !gradeFilter || item.grade === gradeFilter
+    const matchesGrade = !activeGradeFilter || item.grade === activeGradeFilter
     const name = item.name ? item.name.toLowerCase() : ''
     const matchesKeyword = !normalizedKeyword || name.includes(normalizedKeyword)
     return matchesGrade && matchesKeyword
@@ -149,7 +150,7 @@ export default function ClassManage() {
       icon: <FilterOutlined />,
       label: '筛选结果',
       value: filteredRows.length,
-      helper: gradeFilter || normalizedKeyword ? '已应用筛选条件' : '未启用筛选',
+      helper: activeGradeFilter || normalizedKeyword ? '已应用筛选条件' : '未启用筛选',
       accent: { background: '#fff7e6', color: '#b45309' },
     },
   ]
