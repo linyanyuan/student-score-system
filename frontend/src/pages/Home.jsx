@@ -799,9 +799,9 @@ export default function Home() {
       ? '围绕我的课表、班级切换和备忘录组织工作区，保持教师端只做高频查看与跟进。'
       : '围绕班级课表、学籍绑定状态和个人备忘录组织工作台，进入系统后就能看到最相关的信息。'
   const quickEntries = [
-    { key: 'class', icon: <TeamOutlined />, title: '班级管理', description: '快速维护班级信息，进入统一工作台继续完成新增、编辑和清理。', metricLabel: '班级', metricValue: `${classes.length} 个`, actionLabel: '进入班级管理', onAction: () => navigate('/class-manage'), accent: { background: '#e9f2ff', color: '#145fc6' } },
-    { key: 'subject', icon: <BookOutlined />, title: '科目管理', description: '查看现有科目配置，继续维护课程覆盖范围和基础属性。', metricLabel: '科目', metricValue: `${subjects.length} 门`, actionLabel: '进入科目管理', onAction: () => navigate('/subject-manage'), accent: { background: '#eff8ef', color: '#18794e' } },
-    { key: 'exam', icon: <ReadOutlined />, title: '考试管理', description: '从首页直接跳到考试工作区，继续维护考试安排与说明信息。', metricLabel: '备忘', metricValue: `${memos.length} 条`, actionLabel: '进入考试管理', onAction: () => navigate('/exam-manage'), accent: { background: '#fff7e6', color: '#b76c07' } },
+    { key: 'class', icon: <TeamOutlined />, title: '班级管理', description: '快速维护班级信息，进入统一工作台继续完成新增、编辑和清理。', metricLabel: '班级', metricValue: `${classes.length} 个`, actionLabel: '进入班级管理', onAction: () => navigate('/classes'), accent: { background: '#e9f2ff', color: '#145fc6' } },
+    { key: 'subject', icon: <BookOutlined />, title: '科目管理', description: '查看现有科目配置，继续维护课程覆盖范围和基础属性。', metricLabel: '科目', metricValue: `${subjects.length} 门`, actionLabel: '进入科目管理', onAction: () => navigate('/subjects'), accent: { background: '#eff8ef', color: '#18794e' } },
+    { key: 'exam', icon: <ReadOutlined />, title: '考试管理', description: '从首页直接跳到考试工作区，继续维护考试安排与说明信息。', metricLabel: '备忘', metricValue: `${memos.length} 条`, actionLabel: '进入考试管理', onAction: () => navigate('/exams'), accent: { background: '#fff7e6', color: '#b76c07' } },
     { key: 'schedule', icon: <CalendarOutlined />, title: '排课管理', description: '继续查看排课任务与正式课表，同时保留首页的节次维护入口。', metricLabel: '节次', metricValue: `${periods.length} 个`, actionLabel: '进入排课管理', onAction: () => navigate('/schedule-manage'), accent: { background: '#fdf2f2', color: '#c2410c' } },
   ]
 
@@ -1104,6 +1104,7 @@ export default function Home() {
     </div>
   )
 }
+
 
 
 
