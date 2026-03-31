@@ -17,7 +17,7 @@ export default function WorkspaceMetricCard({
       </div>
       <div className="workspace-metric-body">
         {label ? <div className="workspace-metric-label">{label}</div> : null}
-        {value ? <div className="workspace-metric-value">{value}</div> : null}
+        {value != null ? <div className="workspace-metric-value">{value}</div> : null}
       </div>
       {helper ? <div className="workspace-metric-helper">{helper}</div> : null}
       {footer ? <div className="workspace-metric-footer">{footer}</div> : null}

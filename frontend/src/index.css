@@ -35,7 +35,8 @@ body {
   background: var(--workspace-shell-bg);
 }
 
-.workspace-shell .ant-layout {
+.workspace-shell > .workspace-main,
+.workspace-shell > .workspace-main > .workspace-content-shell {
   background: transparent;
 }
 
@@ -92,8 +93,7 @@ body {
 }
 
 .workspace-content-inner {
-  max-width: 1280px;
-  margin: 0 auto;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -101,6 +101,9 @@ body {
 }
 
 .workspace-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 20px;
