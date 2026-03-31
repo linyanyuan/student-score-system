@@ -78,7 +78,8 @@ export default function MainLayout() {
 
   return (
     <Layout className="workspace-shell">
-      <Sider className="workspace-sider" trigger={null} collapsible collapsed={collapsed}>
+      <Sider className="workspace-sider" trigger={null} collapsible 
+        collapsed={collapsed}>
         <div className={`workspace-sider-brand${collapsed ? ' is-collapsed' : ''}`}>
           <ReadOutlined className="workspace-sider-logo" />
           {!collapsed && <span>学生成绩管理系统</span>}

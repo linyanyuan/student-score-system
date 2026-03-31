@@ -255,7 +255,7 @@ export default function ExamManage() {
               />
             </div>
             <div style={filterGroupStyle}>
-              <span style={filterLabelStyle}>按考试名称搜索</span>
+              {/* <span style={filterLabelStyle}>按考试名称搜索</span> */}
               <Input
                 allowClear
                 value={keyword}

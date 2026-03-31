@@ -237,7 +237,7 @@ export default function SubjectManage() {
               />
             </div>
             <div style={filterGroupStyle}>
-              <span style={filterLabelStyle}>按名称或代码搜索</span>
+              {/* <span style={filterLabelStyle}>按名称或代码搜索</span> */}
               <Input
                 allowClear
                 value={keyword}

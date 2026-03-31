@@ -217,7 +217,7 @@ export default function ClassManage() {
               />
             </div>
             <div style={filterGroupStyle}>
-              <span style={filterLabelStyle}>关键词搜索</span>
+              {/* <span style={filterLabelStyle}>关键词搜索</span> */}
               <Input
                 allowClear
                 value={keyword}

@@ -744,7 +744,7 @@ export default function ScheduleManage() {
                   </div>
                   <Row gutter={[12, 12]}>
                     <Col xs={24} sm={12}><Button block icon={<ReloadOutlined />} loading={configLoading} onClick={() => setReloadTick((value) => value + 1)}>刷新配置</Button></Col>
-                    <Col xs={24} sm={12}><Button block icon={<SaveOutlined />} loading={saveLoading} type="primary" ghost onClick={handleSaveAll}>保存全部</Button></Col>
+                    <Col xs={24} sm={12}><Button block icon={<SaveOutlined />} loading={saveLoading} type="primary"  onClick={handleSaveAll}>保存全部</Button></Col>
                     <Col xs={24}><Button block size="large" type="primary" icon={<RobotOutlined />} loading={solveLoading} onClick={handleSolve}>开始自动排课</Button></Col>
                   </Row>
                   <div style={{ borderRadius: 18, padding: 14, background: 'rgba(7, 18, 34, 0.26)', color: '#ffffff' }}>
@@ -766,7 +766,14 @@ export default function ScheduleManage() {
           <Col xs={24} sm={12} xl={6}><MetricCard icon={<SendOutlined />} label="教师约束" value={summaryCounts.teacherConstraints} helper="教师个人时间约束条目" accent={{ background: '#fff5e6', color: '#b76c07' }} /></Col>
           <Col xs={24} sm={12} xl={6}><MetricCard icon={<LockOutlined />} label="锁定课位" value={summaryCounts.locks} helper="不允许求解器改变的课位" accent={{ background: '#fceeea', color: '#c4532c' }} /></Col>
         </Row>
-
+        <SectionCard eyebrow="CONTROL NOTES" title="控制台提示" description="帮助教务老师在高频操作时快速定位关键入口。">
+            <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            <Space align="start" size={10}><AppstoreOutlined style={{ color: pageTokens.primary, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>课时计划和任课安排是自动排课的核心输入，建议优先完成。</Text></Space>
+            <Space align="start" size={10}><WarningOutlined style={{ color: pageTokens.warning, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>教师约束和锁定课位属于精细化控制，可在基础配置稳定后逐步补齐。</Text></Space>
+            <Space align="start" size={10}><EyeOutlined style={{ color: pageTokens.success, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>发布前建议对照“当前草案课表”和“正式课表预览”，避免误覆盖已发布结果。</Text></Space>
+            <Space align="start" size={10}><TableOutlined style={{ color: pageTokens.danger, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>当前页不展示历史草案列表，只聚焦当前任务生成的草案闭环。</Text></Space>
+            </Space>
+        </SectionCard>
         <Spin spinning={configLoading}>
           <Row gutter={[20, 20]} align="top">
             <Col xs={24} xl={16}>
@@ -830,14 +837,7 @@ export default function ScheduleManage() {
                   </Space>
                 </SectionCard>
 
-                <SectionCard eyebrow="CONTROL NOTES" title="控制台提示" description="帮助教务老师在高频操作时快速定位关键入口。">
-                  <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                    <Space align="start" size={10}><AppstoreOutlined style={{ color: pageTokens.primary, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>课时计划和任课安排是自动排课的核心输入，建议优先完成。</Text></Space>
-                    <Space align="start" size={10}><WarningOutlined style={{ color: pageTokens.warning, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>教师约束和锁定课位属于精细化控制，可在基础配置稳定后逐步补齐。</Text></Space>
-                    <Space align="start" size={10}><EyeOutlined style={{ color: pageTokens.success, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>发布前建议对照“当前草案课表”和“正式课表预览”，避免误覆盖已发布结果。</Text></Space>
-                    <Space align="start" size={10}><TableOutlined style={{ color: pageTokens.danger, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>当前页不展示历史草案列表，只聚焦当前任务生成的草案闭环。</Text></Space>
-                  </Space>
-                </SectionCard>
+                
               </Space>
             </Col>
           </Row>

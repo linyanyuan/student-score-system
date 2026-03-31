@@ -835,24 +835,24 @@ export default function Home() {
         eyebrow="Campus Workspace"
         title={heroTitle}
         description={heroDescription}
-        actions={(
-          <Space wrap>
-            {isSchoolAdmin && (
-              <Button icon={<SettingOutlined />} onClick={handleManagePeriods}>
-                节次管理
-              </Button>
-            )}
-            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateMemo}>
-              新建备忘录
-            </Button>
-          </Space>
-        )}
+        // actions={(
+        //   <Space wrap>
+        //     {isSchoolAdmin && (
+        //       <Button icon={<SettingOutlined />} onClick={handleManagePeriods}>
+        //         节次管理
+        //       </Button>
+        //     )}
+        //     <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateMemo}>
+        //       新建备忘录
+        //     </Button>
+        //   </Space>
+        // )}
         meta={(
           <Space wrap size={[8, 8]}>
             <Tag color="blue">{roleLabel}</Tag>
             <Tag>{`待处理 ${memos.length} 条`}</Tag>
             {overdueMemoCount ? <Tag color="error">{`超期 ${overdueMemoCount} 条`}</Tag> : <Tag color="success">进度稳定</Tag>}
-            {quote?.source ? <Tag color="processing">{quote.source}</Tag> : null}
+            
           </Space>
         )}
       >
@@ -862,7 +862,9 @@ export default function Home() {
               <Text style={{ color: 'rgba(255,255,255,0.72)', fontSize: 12 }}>每日一句</Text>
               <Paragraph style={{ color: '#ffffff', fontSize: 16, margin: '8px 0 0' }}>
                 “{quote.content}”
+                {quote?.source ? <Paragraph style={{ textAlign: 'right',color: 'rgba(255,255,255,0.72)', fontSize: 14 }} >{quote.source}</Paragraph> : null}
               </Paragraph>
+              
             </div>
           )}
           <div style={metricGridStyle}>

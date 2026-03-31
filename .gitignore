@@ -40,7 +40,7 @@ frontend/src/**/tmp_*.txt
 # skills
 .codex/
 .claude/
-.superpowers
+.superpowers/
 # Environment
 .env
 .env.local
