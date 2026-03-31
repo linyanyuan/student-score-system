@@ -15,4 +15,5 @@ class SchedulePeriod(Base):
     end_time: Mapped[str] = mapped_column(String(10), nullable=False)    # 格式: "HH:MM"
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    include_in_auto_schedule: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

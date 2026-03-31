@@ -12,10 +12,9 @@ class ScoreFullScoreConfig(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     school_id: Mapped[int] = mapped_column(Integer, ForeignKey("schools.id"), nullable=False)
-    chinese_full_score: Mapped[float] = mapped_column(Float, nullable=False, default=100.0)
+    chinese_full_score: Mapped[float] = mapped_column(Float, nullable=False, default=120.0)
     math_full_score: Mapped[float] = mapped_column(Float, nullable=False, default=120.0)
     english_full_score: Mapped[float] = mapped_column(Float, nullable=False, default=120.0)
     other_full_score: Mapped[float] = mapped_column(Float, nullable=False, default=60.0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
-

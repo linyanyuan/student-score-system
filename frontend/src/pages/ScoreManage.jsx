@@ -4,7 +4,7 @@ import {
 } from 'antd'
 import { PlusOutlined, UploadOutlined, DownloadOutlined, SearchOutlined, BarChartOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import {
-  getScores, createScore, updateScore, upsertScore, importScores, exportScores, downloadScoreTemplate,
+  getScores, createScore, upsertScore, importScores, exportScores, downloadScoreTemplate,
   deleteScoreByStudent, batchDeleteScoresByStudents,
 } from '../api/score'
 import { getExams } from '../api/exam'
@@ -20,8 +20,8 @@ const SUBJECT_DISPLAY_ORDER = ['语文', '数学', '英语', '物理', '生物',
 const parseExamGrades = (gradeText) => {
   if (!gradeText) return []
   return gradeText
-    .replaceAll('，', ',')
-    .replaceAll('、', ',')
+    .replaceAll('?', ',')
+    .replaceAll('?', ',')
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean)
@@ -237,8 +237,8 @@ export default function ScoreManage() {
 
   const renderRankChange = (text) => {
     if (!text || text === '-') return <span style={{ color: '#999' }}>-</span>
-    if (text.startsWith('↑')) return <span style={{ color: '#52c41a', fontWeight: 'bold' }}>{text}</span>
-    if (text.startsWith('↓')) return <span style={{ color: '#ff4d4f', fontWeight: 'bold' }}>{text}</span>
+    if (text.startsWith('?')) return <span style={{ color: '#52c41a', fontWeight: 'bold' }}>{text}</span>
+    if (text.startsWith('?')) return <span style={{ color: '#ff4d4f', fontWeight: 'bold' }}>{text}</span>
     return text
   }
 
@@ -340,7 +340,7 @@ export default function ScoreManage() {
           )}
           <Select
             style={{ width: 150 }}
-            placeholder="班级筛选"
+            placeholder="Class Filter"
             allowClear
             value={selectedClass}
             onChange={(v) => { setSelectedClass(v); setPage(1) }}
@@ -348,7 +348,7 @@ export default function ScoreManage() {
           />
           <Input
             style={{ width: 120 }}
-            placeholder="学号"
+            placeholder="Student No"
             value={searchStudentNo}
             onChange={(e) => setSearchStudentNo(e.target.value)}
             allowClear
@@ -356,7 +356,7 @@ export default function ScoreManage() {
           />
           <Input
             style={{ width: 120 }}
-            placeholder="姓名"
+            placeholder="Student Name"
             value={searchStudentName}
             onChange={(e) => setSearchStudentName(e.target.value)}
             allowClear
@@ -374,10 +374,10 @@ export default function ScoreManage() {
             <Button onClick={handleDownloadTemplate}>下载模板</Button>
             {selectedRowKeys.length > 0 && (
               <Popconfirm
-                title={`确认删除选中的 ${selectedRowKeys.length} 名学生的成绩？`}
+                title={`Confirm deleting scores for ${selectedRowKeys.length} selected students?`}
                 onConfirm={handleBatchDelete}
               >
-                <Button danger>删除所选 ({selectedRowKeys.length})</Button>
+                <Button danger>Delete Selected ({selectedRowKeys.length})</Button>
               </Popconfirm>
             )}
           </Space>
@@ -399,14 +399,14 @@ export default function ScoreManage() {
           pageSize,
           total,
           showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
+          showTotal: (t) => `Total ${t} items`,
           onChange: (p, ps) => { setPage(p); setPageSize(ps) },
         }}
       />
 
       <Modal title="录入成绩" open={addModalOpen} onOk={handleAdd} onCancel={() => setAddModalOpen(false)} width={500}>
         <Form form={addForm} layout="vertical">
-          <Form.Item name="student_id" label="学生" rules={[{ required: true, message: '请选择学生' }]}>
+          <Form.Item name="student_id" label="瀛︾敓" rules={[{ required: true, message: '璇烽€夋嫨瀛︾敓' }]}>
             <Select
               showSearch
               optionFilterProp="label"
@@ -430,8 +430,8 @@ export default function ScoreManage() {
       >
         {importResult && (
           <>
-            <p>成功导入: <Tag color="green">{importResult.success_count}</Tag> 条</p>
-            <p>失败: <Tag color="red">{importResult.error_count}</Tag> 条</p>
+            <p>Imported: <Tag color="green">{importResult.success_count}</Tag> rows</p>
+            <p>Failed: <Tag color="red">{importResult.error_count}</Tag> rows</p>
             {importResult.errors?.length > 0 && (
               <Table
                 size="small"
@@ -497,3 +497,5 @@ export default function ScoreManage() {
     />
   )
 }
+
+

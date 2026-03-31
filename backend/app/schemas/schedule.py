@@ -1,4 +1,4 @@
-from datetime import datetime, date
+﻿from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict
 
@@ -6,9 +6,10 @@ from pydantic import BaseModel, ConfigDict
 # SchedulePeriod Schemas
 class SchedulePeriodCreate(BaseModel):
     name: str
-    start_time: str  # 格式: "HH:MM"
-    end_time: str    # 格式: "HH:MM"
+    start_time: str  # format: HH:MM
+    end_time: str  # format: HH:MM
     sort_order: int
+    include_in_auto_schedule: bool = True
 
 
 class SchedulePeriodUpdate(BaseModel):
@@ -17,6 +18,7 @@ class SchedulePeriodUpdate(BaseModel):
     end_time: str | None = None
     sort_order: int | None = None
     is_active: bool | None = None
+    include_in_auto_schedule: bool | None = None
 
 
 class SchedulePeriodResponse(BaseModel):
@@ -28,6 +30,7 @@ class SchedulePeriodResponse(BaseModel):
     end_time: str
     sort_order: int
     is_active: bool
+    include_in_auto_schedule: bool
     created_at: datetime
 
 

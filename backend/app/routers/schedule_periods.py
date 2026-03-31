@@ -26,7 +26,8 @@ def create_schedule_period(
         name=req.name,
         start_time=req.start_time,
         end_time=req.end_time,
-        sort_order=req.sort_order
+        sort_order=req.sort_order,
+        include_in_auto_schedule=req.include_in_auto_schedule,
     )
     db.add(period)
     db.commit()
@@ -56,6 +57,8 @@ def update_schedule_period(
         period.sort_order = req.sort_order
     if req.is_active is not None:
         period.is_active = req.is_active
+    if req.include_in_auto_schedule is not None:
+        period.include_in_auto_schedule = req.include_in_auto_schedule
 
     db.commit()
     db.refresh(period)

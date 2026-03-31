@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+﻿import { useEffect, useRef, useState } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Form, Input, Button, Card, message, Typography } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { useAuth } from '../contexts/AuthContext'
@@ -9,13 +9,24 @@ const { Title } = Typography
 export default function Login() {
   const { login, user } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const [loading, setLoading] = useState(false)
+  const idleNoticeShown = useRef(false)
 
   useEffect(() => {
     if (user) {
       navigate('/', { replace: true })
     }
   }, [user, navigate])
+
+  useEffect(() => {
+    const reason = new URLSearchParams(location.search).get('reason')
+    if (reason === 'idle' && !idleNoticeShown.current) {
+      message.warning('由于长时间未操作，登录已失效，请重新登录', 3)
+      idleNoticeShown.current = true
+      navigate('/login', { replace: true })
+    }
+  }, [location.search, navigate])
 
   const onFinish = async (values) => {
     setLoading(true)
@@ -27,15 +38,11 @@ export default function Login() {
       navigate('/', { replace: true })
     } catch (err) {
       hideLoading()
-      // 判断错误类型
       if (!err.response) {
-        // 网络错误
         message.error('网络连接失败，请检查网络后重试', 2)
       } else if (err.response?.status === 401 || err.response?.status === 400) {
-        // 认证错误
         message.error('账号或密码错误，请重新输入', 2)
       } else {
-        // 其他错误
         message.error('登录失败，请稍后重试', 2)
       }
     } finally {
@@ -66,3 +73,4 @@ export default function Login() {
     </div>
   )
 }
+

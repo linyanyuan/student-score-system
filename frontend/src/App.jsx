@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+﻿import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import MainLayout from './components/MainLayout'
@@ -14,6 +14,7 @@ import ScoreManage from './pages/ScoreManage'
 import SeatManage from './pages/SeatManage'
 import SchoolManage from './pages/SchoolManage'
 import AccountManage from './pages/AccountManage'
+import ScheduleManage from './pages/ScheduleManage'
 
 export default function App() {
   return (
@@ -34,6 +35,7 @@ export default function App() {
               <Route path="/exams" element={<ExamManage />} />
               <Route path="/scores" element={<ScoreManage />} />
               <Route path="/seats" element={<SeatManage />} />
+              <Route path="/schedule-manage" element={<ScheduleManage />} />
             </Route>
           </Route>
         </Routes>
