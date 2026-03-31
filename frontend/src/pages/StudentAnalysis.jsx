@@ -6,6 +6,7 @@ import { getSubjects } from '../api/subject'
 import { getExams } from '../api/exam'
 import { getClasses } from '../api/class'
 import { useAuth } from '../contexts/AuthContext'
+import { buildRadarSubjectPoints } from './studentAnalysisUtils'
 import {
   getStudentTotalTrend,
   getStudentSubjectTrend,
@@ -99,9 +100,17 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
         .sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
     : [...exams].sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
 
-  // Auto-select most recent exam when student changes
+  // Keep selected exam in sync with current student's available exams
   useEffect(() => {
-    if (studentId && filteredExams.length > 0 && !selectedExamId) {
+    if (!studentId) {
+      setSelectedExamId(null)
+      return
+    }
+    if (filteredExams.length === 0) {
+      setSelectedExamId(null)
+      return
+    }
+    if (!selectedExamId || !filteredExams.some((e) => e.id === selectedExamId)) {
       setSelectedExamId(filteredExams[0].id)
     }
   }, [studentId, filteredExams, selectedExamId])
@@ -216,21 +225,37 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
     },
   }
 
-  // Radar: subject comparison
-  const radarData = subjectComparison.flatMap((d) => [
-    { subject: d.subject_name, score: d.student_score ?? 0, type: '本人' },
-    { subject: d.subject_name, score: d.class_avg ?? 0, type: '班级均分' },
-    { subject: d.subject_name, score: d.grade_avg ?? 0, type: '年级均分' },
-  ])
+  // Radar: only student polygon, each axis top (100) represents full score of that subject
+  const radarData = buildRadarSubjectPoints(subjectComparison)
   const radarConfig = {
     data: radarData,
     xField: 'subject',
-    yField: 'score',
-    seriesField: 'type',
-    colorField: 'type',
-    meta: { score: { min: 0, max: 150 } },
-    legend: { position: 'top' },
-    
+    yField: 'score_rate',
+    axis: {
+      y: {
+        nice: false,
+      },
+    },
+     area: {
+      style: { fillOpacity: 0.3, fill: '#1890ff' },
+    },
+    scale: {
+      y: {
+        min: 0,
+        max: 100,
+        domain: [0, 100],
+        nice: false,
+      },
+    },
+    tooltip: {
+      title: (d) => d.subject,
+      items: [
+        { field: 'student_score', name: '分数' },
+        { field: 'full_score', name: '满分' },
+        { field: 'score_rate', name: '得分率(%)' },
+      ],
+    },
+    legend: false,
   }
 
   const studentOptions = students.map((s) => ({
@@ -307,7 +332,7 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
 
             <Col xs={24} lg={12}>
               <Card
-                title="各科成绩对比（雷达图）"
+                title="各科成绩对比（雷达图，顶点=满分）"
                 size="small"
                 extra={
                   <Select

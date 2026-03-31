@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/analysis", tags=["成绩分析"])
 
 
 DEFAULT_SUBJECT_FULL_SCORES = {
-    "chinese_full_score": 100.0,
+    "chinese_full_score": 120.0,
     "math_full_score": 120.0,
     "english_full_score": 120.0,
     "other_full_score": 60.0,
@@ -36,7 +36,7 @@ DEFAULT_SUBJECT_FULL_SCORES = {
 
 
 class FullScoreConfigPayload(BaseModel):
-    chinese_full_score: float = Field(default=100.0, gt=0)
+    chinese_full_score: float = Field(default=120.0, gt=0)
     math_full_score: float = Field(default=120.0, gt=0)
     english_full_score: float = Field(default=120.0, gt=0)
     other_full_score: float = Field(default=60.0, gt=0)
@@ -534,6 +534,8 @@ def student_subject_comparison(
     # Get student's class and grade
     cls = db.query(Class).filter(Class.id == student.class_id).first()
     grade = cls.grade if cls else None
+    school_id_for_full_score = cls.school_id if cls else get_user_school_id(current_user)
+    full_score_config = _load_subject_full_score_config(db, school_id_for_full_score)
 
     # Get all subjects that have scores in this exam
     subject_ids = [
@@ -580,6 +582,7 @@ def student_subject_comparison(
         result.append({
             "subject_name": subj_name,
             "student_score": own.score if own else None,
+            "subject_full_score": _subject_full_score_for_three_rates(subj_name, full_score_config=full_score_config),
             "class_avg": round(float(class_avg_row), 2) if class_avg_row is not None else None,
             "grade_avg": round(float(grade_avg_row), 2) if grade_avg_row is not None else None,
         })
