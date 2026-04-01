@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd'
+import { AlertOutlined, ApartmentOutlined, ReadOutlined, TeamOutlined } from '@ant-design/icons'
+import { Alert, Button, Empty, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message } from 'antd'
 
 import request from '../api/request'
+import WorkspaceMetricCard from '../components/workspace/WorkspaceMetricCard'
+import WorkspacePageHeader from '../components/workspace/WorkspacePageHeader'
+import WorkspaceSectionCard from '../components/workspace/WorkspaceSectionCard'
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
 import {
@@ -28,6 +32,42 @@ const gradeRankMap = {
   高一: 10,
   高二: 11,
   高三: 12,
+}
+
+const metricGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+  gap: 16,
+}
+
+const focusGridStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1.3fr) minmax(280px, 0.7fr)',
+  gap: 20,
+  alignItems: 'start',
+}
+
+const stackStyle = {
+  display: 'grid',
+  gap: 16,
+}
+
+const compactStackStyle = {
+  display: 'grid',
+  gap: 12,
+}
+
+const infoPanelStyle = {
+  border: '1px solid var(--workspace-panel-border)',
+  background: 'rgba(248, 250, 252, 0.85)',
+  borderRadius: 16,
+  padding: 16,
+}
+
+const chipListStyle = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 8,
 }
 
 function sortGrades(a, b) {
@@ -87,25 +127,22 @@ export default function TeacherClassManage() {
   const classMap = useMemo(
     () =>
       Object.fromEntries(
-        classes.map((c) => [c.id, c.grade ? `${c.grade}-${c.name}` : String(c.name || `班级ID:${c.id}`)])
+        classes.map((item) => [item.id, item.grade ? `${item.grade}-${item.name}` : String(item.name || `班级ID:${item.id}`)])
       ),
     [classes]
   )
-  const classInfoMap = useMemo(() => Object.fromEntries(classes.map((c) => [c.id, c])), [classes])
+  const classInfoMap = useMemo(() => Object.fromEntries(classes.map((item) => [item.id, item])), [classes])
 
-  const teacherMap = useMemo(() => Object.fromEntries(teachers.map((t) => [t.id, t.username])), [teachers])
-  const subjectMap = useMemo(() => Object.fromEntries(subjects.map((s) => [s.id, s.name])), [subjects])
+  const teacherMap = useMemo(() => Object.fromEntries(teachers.map((item) => [item.id, item.username])), [teachers])
+  const subjectMap = useMemo(() => Object.fromEntries(subjects.map((item) => [item.id, item.name])), [subjects])
 
-  const teacherOptions = useMemo(
-    () => teachers.map((t) => ({ label: t.username, value: t.id })),
-    [teachers]
-  )
+  const teacherOptions = useMemo(() => teachers.map((item) => ({ label: item.username, value: item.id })), [teachers])
 
   const gradeOptions = useMemo(
     () =>
-      Array.from(new Set(classes.map((c) => c.grade).filter(Boolean)))
+      Array.from(new Set(classes.map((item) => item.grade).filter(Boolean)))
         .sort(sortGrades)
-        .map((g) => ({ label: g, value: g })),
+        .map((grade) => ({ label: grade, value: grade })),
     [classes]
   )
 
@@ -126,10 +163,10 @@ export default function TeacherClassManage() {
   const unboundClassOptions = useMemo(() => {
     const used = new Set(boundClassIds)
     return classes
-      .filter((cls) => !used.has(cls.id))
-      .map((cls) => ({
-        label: cls.grade ? `${cls.grade}-${cls.name}` : String(cls.name || `班级ID:${cls.id}`),
-        value: cls.id,
+      .filter((item) => !used.has(item.id))
+      .map((item) => ({
+        label: item.grade ? `${item.grade}-${item.name}` : String(item.name || `班级ID:${item.id}`),
+        value: item.id,
       }))
   }, [classes, boundClassIds])
 
@@ -158,7 +195,7 @@ export default function TeacherClassManage() {
 
   const filteredClassesForMatrix = useMemo(() => {
     let rows = classes
-    if (matrixGrade) rows = rows.filter((cls) => cls.grade === matrixGrade)
+    if (matrixGrade) rows = rows.filter((item) => item.grade === matrixGrade)
     return [...rows].sort((a, b) => {
       const byGrade = sortGrades(a.grade, b.grade)
       if (byGrade !== 0) return byGrade
@@ -168,8 +205,8 @@ export default function TeacherClassManage() {
 
   const matrixGradeSet = useMemo(() => {
     const set = new Set()
-    filteredClassesForMatrix.forEach((row) => {
-      if (row?.grade) set.add(row.grade)
+    filteredClassesForMatrix.forEach((item) => {
+      if (item?.grade) set.add(item.grade)
     })
     return set
   }, [filteredClassesForMatrix])
@@ -189,8 +226,7 @@ export default function TeacherClassManage() {
         .filter(Boolean)
     )
 
-    const chosen = usedSubjectIds.size > 0 ? scopedSubjects.filter((s) => usedSubjectIds.has(s.id)) : scopedSubjects
-    return chosen
+    return usedSubjectIds.size > 0 ? scopedSubjects.filter((item) => usedSubjectIds.has(item.id)) : scopedSubjects
   }, [filteredClassesForMatrix, assignments, subjects, matrixGradeSet])
 
   const assignmentCellMap = useMemo(() => {
@@ -262,19 +298,86 @@ export default function TeacherClassManage() {
 
   const matrixData = useMemo(
     () =>
-      filteredClassesForMatrix.map((cls) => {
+      filteredClassesForMatrix.map((item) => {
         const row = {
-          key: String(cls.id),
-          class_id: cls.id,
-          class_name: cls.grade ? `${cls.grade}-${cls.name}` : String(cls.name || `班级ID:${cls.id}`),
+          key: String(item.id),
+          class_id: item.id,
+          class_name: item.grade ? `${item.grade}-${item.name}` : String(item.name || `班级ID:${item.id}`),
         }
         matrixSubjectOptions.forEach((subject) => {
-          row[`subject_${subject.id}`] = assignmentCellMap.get(`${cls.id}_${subject.id}`) || null
+          row[`subject_${subject.id}`] = assignmentCellMap.get(`${item.id}_${subject.id}`) || null
         })
         return row
       }),
     [filteredClassesForMatrix, matrixSubjectOptions, assignmentCellMap]
   )
+
+  const assignedTeacherIds = useMemo(() => new Set(assignments.map((item) => item.teacher_id).filter(Boolean)), [assignments])
+  const totalBoundClassCount = useMemo(
+    () => new Set([...assignments.map((item) => item.class_id), ...boundClassRows.map((item) => item.class_id)].filter(Boolean)).size,
+    [assignments, boundClassRows]
+  )
+  const pendingCount = useMemo(
+    () => teachers.filter((teacher) => !assignedTeacherIds.has(teacher.id)).length,
+    [teachers, assignedTeacherIds]
+  )
+
+  const selectedTeacherName = selectedTeacher ? teacherMap[selectedTeacher] || `教师ID:${selectedTeacher}` : ''
+  const selectedTeacherGrades = useMemo(
+    () => Array.from(new Set(boundClassRows.map((item) => classInfoMap[item.class_id]?.grade).filter(Boolean))).sort(sortGrades),
+    [boundClassRows, classInfoMap]
+  )
+  const selectedTeacherSubjectCount = useMemo(
+    () => new Set(teacherAssignments.map((item) => item.subject_id).filter(Boolean)).size,
+    [teacherAssignments]
+  )
+
+  const currentTeacherReminders = useMemo(() => {
+    if (!selectedTeacher) {
+      return ['先选择一位教师，再查看该教师的班级绑定和授课分配上下文。']
+    }
+    const reminders = []
+    if (boundClassRows.length === 0) reminders.push('该教师还没有绑定班级，建议先建立服务范围。')
+    if (boundClassRows.length > 0 && selectedTeacherSubjectCount === 0) reminders.push('该教师已绑定班级，但尚未完成科目分配。')
+    if (selectedClassIds.length > 0 && filteredAssignSubjectOptions.length === 0) reminders.push('当前所选班级没有匹配科目，请先检查科目适用年级。')
+    if (reminders.length === 0) reminders.push('当前教师的绑定与授课分配可以继续细化或回查。')
+    return reminders
+  }, [selectedTeacher, boundClassRows.length, selectedTeacherSubjectCount, selectedClassIds.length, filteredAssignSubjectOptions.length])
+
+  const metrics = [
+    {
+      key: 'teachers',
+      label: '教师总数',
+      value: teachers.length,
+      helper: teachers.length ? '当前参与教师管理配置的教师账号数量' : '暂无教师数据',
+      accent: { background: '#e9f2ff', color: '#1d4ed8' },
+      icon: <TeamOutlined />,
+    },
+    {
+      key: 'bound',
+      label: '已绑定班级',
+      value: totalBoundClassCount,
+      helper: totalBoundClassCount ? '已进入教师服务范围的班级关系数' : '尚未形成班级绑定',
+      accent: { background: '#eff8ef', color: '#18794e' },
+      icon: <ApartmentOutlined />,
+    },
+    {
+      key: 'groups',
+      label: '已分配科目组',
+      value: groupedAssignments.length,
+      helper: groupedAssignments.length ? '按教师-科目聚合的授课分配组' : '尚未生成授课分配',
+      accent: { background: '#eef2ff', color: '#4338ca' },
+      icon: <ReadOutlined />,
+    },
+    {
+      key: 'pending',
+      label: '待补齐项',
+      value: pendingCount,
+      helper: pendingCount ? '仍有教师尚未完成授课分配' : '教师分配状态已基本补齐',
+      accent: { background: '#fff7e6', color: '#b45309' },
+      icon: <AlertOutlined />,
+    },
+  ]
 
   const refreshAssignments = async () => {
     setLoading(true)
@@ -317,7 +420,7 @@ export default function TeacherClassManage() {
         setTeachers(teacherRes.data || [])
         setSubjects(subjectRes.data || [])
 
-        const defaultGrade = Array.from(new Set(nextClasses.map((c) => c.grade).filter(Boolean))).sort(sortGrades)[0]
+        const defaultGrade = Array.from(new Set(nextClasses.map((item) => item.grade).filter(Boolean))).sort(sortGrades)[0]
         setMatrixGrade(defaultGrade)
       } catch (err) {
         message.error(err.message || '加载基础数据失败')
@@ -494,7 +597,7 @@ export default function TeacherClassManage() {
       render: (value = []) => (
         <Space wrap>
           {value.map((name) => (
-            <Tag key={`${name}`}>{name}</Tag>
+            <Tag key={name}>{name}</Tag>
           ))}
         </Space>
       ),
@@ -514,71 +617,80 @@ export default function TeacherClassManage() {
   ]
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Alert
-        type="info"
-        showIcon
-        message="使用说明"
-        description="先绑定教师与班级，再进行教师-科目-班级分配。科目会根据所选班级所在年级自动过滤。下方“班级-科目-教师矩阵”与 Excel 模板一致：第一行是科目，第一列是班级，中间显示授课教师。"
-      />
-
-      <Card size="small" title="教师绑定与分配">
-        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-          <Space wrap>
-            <Select
-              style={{ width: 220 }}
-              placeholder="选择教师"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              value={selectedTeacher}
-              onChange={handleTeacherChange}
-              options={teacherOptions}
-            />
-
-            <Select
-              style={{ width: 320 }}
-              mode="multiple"
-              maxTagCount="responsive"
-              placeholder={selectedTeacher ? '选择已绑定班级（可多选）' : '请先选择教师'}
-              disabled={!selectedTeacher}
-              value={selectedClassIds}
-              onChange={setSelectedClassIds}
-              options={boundClassOptions}
-            />
-
-            <Select
-              style={{ width: 240 }}
-              placeholder="选择科目"
-              value={selectedSubject}
-              onChange={setSelectedSubject}
-              options={filteredAssignSubjectOptions}
-              showSearch
-              optionFilterProp="label"
-            />
-
-            <Button type="primary" onClick={handleAssign} loading={saving}>
-              分配科目
-            </Button>
+    <div className="workspace-page">
+      <WorkspacePageHeader
+        eyebrow="Teacher Workspace"
+        title="教师管理工作台"
+        description="围绕教师绑定、授课分配和覆盖提醒组织教师管理工作区，让主流程在首屏连续完成。"
+        meta={(
+          <Space size={12} wrap>
+            <span>教师 {teachers.length} 人</span>
+            <span>分配组 {groupedAssignments.length} 组</span>
+            <span>待补齐 {pendingCount} 项</span>
           </Space>
+        )}
+      >
+        <div style={metricGridStyle}>
+          {metrics.map((item) => (
+            <WorkspaceMetricCard
+              key={item.key}
+              icon={item.icon}
+              label={item.label}
+              value={item.value}
+              helper={item.helper}
+              accent={item.accent}
+            />
+          ))}
+        </div>
+      </WorkspacePageHeader>
 
-          {selectedTeacher && (
-            <>
+      <div className="teacher-manage-focus-grid" style={focusGridStyle}>
+        <WorkspaceSectionCard
+          eyebrow="Primary Workflow"
+          title="主流程工作区"
+          description="先选择教师，再完成班级绑定和科目分配，减少跨区域来回切换。"
+        >
+          <div style={stackStyle}>
+            <Alert
+              type="info"
+              showIcon
+              message="使用说明"
+              description="先绑定教师与班级，再进行教师-科目-班级分配。科目会根据所选班级所在年级自动过滤。"
+            />
+
+            <div style={compactStackStyle}>
+              <Text strong>选择教师</Text>
               <Space wrap>
                 <Select
-                  style={{ width: 320 }}
+                  style={{ width: 240 }}
+                  placeholder="选择教师"
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  value={selectedTeacher}
+                  onChange={handleTeacherChange}
+                  options={teacherOptions}
+                />
+                <Select
+                  style={{ width: 360 }}
                   mode="multiple"
                   maxTagCount="responsive"
-                  placeholder="新增教师班级绑定（可多选）"
+                  placeholder={selectedTeacher ? '新增教师班级绑定（可多选）' : '请先选择教师'}
+                  disabled={!selectedTeacher}
                   value={bindClassIds}
                   onChange={setBindClassIds}
                   options={unboundClassOptions}
                   showSearch
                   optionFilterProp="label"
                 />
-                <Button onClick={handleBindClass}>绑定班级</Button>
+                <Button onClick={handleBindClass} disabled={!selectedTeacher || !bindClassIds.length}>
+                  绑定班级
+                </Button>
               </Space>
+            </div>
 
+            <div style={compactStackStyle}>
+              <Text strong>已绑定班级</Text>
               <Table
                 size="small"
                 rowKey="id"
@@ -589,16 +701,98 @@ export default function TeacherClassManage() {
                   pageSizeOptions: ['5', '10', '20', '50'],
                   showTotal: (total) => `共 ${total} 条`,
                 }}
+                locale={{
+                  emptyText: selectedTeacher ? <Empty description="该教师暂无班级绑定" image={Empty.PRESENTED_IMAGE_SIMPLE} /> : '请先选择教师',
+                }}
               />
-            </>
-          )}
-        </Space>
-      </Card>
+            </div>
 
-      <Card
-        size="small"
+            <div style={compactStackStyle}>
+              <Text strong>分配科目</Text>
+              <Space wrap>
+                <Select
+                  style={{ width: 320 }}
+                  mode="multiple"
+                  maxTagCount="responsive"
+                  placeholder={selectedTeacher ? '选择已绑定班级（可多选）' : '请先选择教师'}
+                  disabled={!selectedTeacher}
+                  value={selectedClassIds}
+                  onChange={setSelectedClassIds}
+                  options={boundClassOptions}
+                />
+                <Select
+                  style={{ width: 260 }}
+                  placeholder="选择科目"
+                  value={selectedSubject}
+                  onChange={setSelectedSubject}
+                  options={filteredAssignSubjectOptions}
+                  showSearch
+                  optionFilterProp="label"
+                  disabled={!selectedTeacher}
+                />
+                <Button type="primary" onClick={handleAssign} loading={saving} disabled={!selectedTeacher}>
+                  分配科目
+                </Button>
+              </Space>
+              {!selectedTeacher && <Alert type="warning" showIcon message="待处理提醒" description="先选择教师后，班级绑定和科目分配才会进入可操作状态。" />}
+              {selectedTeacher && selectedClassIds.length === 0 && (
+                <Alert type="warning" showIcon message="待处理提醒" description="已选择教师，但还没有选中要分配的班级。" />
+              )}
+            </div>
+          </div>
+        </WorkspaceSectionCard>
+
+        <div className="teacher-manage-side-stack" style={stackStyle}>
+          <WorkspaceSectionCard
+            eyebrow="Teacher Snapshot"
+            title="当前教师概览"
+            description={selectedTeacher ? `围绕 ${selectedTeacherName} 的绑定和分配状态提供上下文。` : '选择教师后，这里会显示当前教师的上下文信息。'}
+          >
+            <div style={stackStyle}>
+              <div style={infoPanelStyle}>
+                <div style={compactStackStyle}>
+                  <div>
+                    <Text type="secondary">当前教师</Text>
+                    <div style={{ marginTop: 4, fontWeight: 600 }}>{selectedTeacherName || '未选择教师'}</div>
+                  </div>
+                  <div>
+                    <Text type="secondary">已绑定班级</Text>
+                    <div style={{ marginTop: 4, fontWeight: 600 }}>{selectedTeacher ? boundClassRows.length : 0}</div>
+                  </div>
+                  <div>
+                    <Text type="secondary">已分配科目</Text>
+                    <div style={{ marginTop: 4, fontWeight: 600 }}>{selectedTeacher ? selectedTeacherSubjectCount : 0}</div>
+                  </div>
+                  <div>
+                    <Text type="secondary">涉及年级</Text>
+                    <div style={{ marginTop: 8, ...chipListStyle }}>
+                      {selectedTeacherGrades.length ? selectedTeacherGrades.map((grade) => <Tag key={grade}>{grade}</Tag>) : <Text type="secondary">暂无年级范围</Text>}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </WorkspaceSectionCard>
+
+          <WorkspaceSectionCard
+            eyebrow="Pending Signals"
+            title="待处理提醒"
+            description="把当前教师仍需补齐的关键动作集中放在侧栏。"
+          >
+            <div style={stackStyle}>
+              {currentTeacherReminders.map((item) => (
+                <Alert key={item} type="warning" showIcon message={item} />
+              ))}
+            </div>
+          </WorkspaceSectionCard>
+        </div>
+      </div>
+
+      <WorkspaceSectionCard
+        eyebrow="矩阵总览"
         title="班级-科目-教师矩阵"
-        extra={
+        description="按年级查看各班级在不同科目上的授课教师覆盖情况。"
+        extra={(
           <Space>
             <Text type="secondary">年级筛选</Text>
             <Select
@@ -610,7 +804,7 @@ export default function TeacherClassManage() {
               onChange={setMatrixGrade}
             />
           </Space>
-        }
+        )}
       >
         <Table
           rowKey="key"
@@ -622,9 +816,13 @@ export default function TeacherClassManage() {
           size="middle"
           bordered
         />
-      </Card>
+      </WorkspaceSectionCard>
 
-      <Card size="small" title="分配汇总（按教师-科目聚合）">
+      <WorkspaceSectionCard
+        eyebrow="Assignment Summary"
+        title="分配汇总"
+        description="按教师-科目聚合查看当前授课结果，便于回查与整组删除。"
+      >
         <Table
           rowKey="key"
           columns={summaryColumns}
@@ -636,7 +834,7 @@ export default function TeacherClassManage() {
             showTotal: (total) => `共 ${total} 条`,
           }}
         />
-      </Card>
-    </Space>
+      </WorkspaceSectionCard>
+    </div>
   )
 }

@@ -340,7 +340,7 @@ export default function ScoreManage() {
           )}
           <Select
             style={{ width: 150 }}
-            placeholder="Class Filter"
+            placeholder="选择班级"
             allowClear
             value={selectedClass}
             onChange={(v) => { setSelectedClass(v); setPage(1) }}
@@ -348,7 +348,7 @@ export default function ScoreManage() {
           />
           <Input
             style={{ width: 120 }}
-            placeholder="Student No"
+            placeholder="学生学号"
             value={searchStudentNo}
             onChange={(e) => setSearchStudentNo(e.target.value)}
             allowClear
@@ -356,7 +356,7 @@ export default function ScoreManage() {
           />
           <Input
             style={{ width: 120 }}
-            placeholder="Student Name"
+            placeholder="学生姓名"
             value={searchStudentName}
             onChange={(e) => setSearchStudentName(e.target.value)}
             allowClear
