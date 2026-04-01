@@ -21,7 +21,6 @@ import {
   DownloadOutlined,
   SearchOutlined,
   FormOutlined,
-  FilterOutlined,
   SolutionOutlined,
   ApartmentOutlined,
   MinusCircleOutlined,
@@ -60,6 +59,21 @@ const fieldTypeLabels = {
   number: '数字',
   date: '日期',
   select: '下拉选项',
+}
+
+const GRADE_RANK = {
+  一年级: 1,
+  二年级: 2,
+  三年级: 3,
+  四年级: 4,
+  五年级: 5,
+  六年级: 6,
+  七年级: 7,
+  八年级: 8,
+  九年级: 9,
+  高一: 10,
+  高二: 11,
+  高三: 12,
 }
 
 const metricGridStyle = {
@@ -133,8 +147,13 @@ function normalizeFieldValue(field, value) {
   return value
 }
 
+function compareGrade(left, right) {
+  return (GRADE_RANK[left] ?? 999) - (GRADE_RANK[right] ?? 999) || String(left || '').localeCompare(String(right || ''), 'zh-Hans-CN')
+}
+
 export default function StudentManage() {
   const [data, setData] = useState([])
+  const [metricStudents, setMetricStudents] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
@@ -172,6 +191,15 @@ export default function StudentManage() {
     }
   }, [page, pageSize, filters])
 
+  const fetchMetricStudents = useCallback(async () => {
+    try {
+      const res = await getStudents({ page: 1, page_size: 9999 })
+      setMetricStudents(res.data.items || [])
+    } catch (err) {
+      message.error(err.message)
+    }
+  }, [])
+
   const fetchCustomFieldDefinitions = useCallback(async () => {
     try {
       const res = await getCustomFields()
@@ -188,7 +216,8 @@ export default function StudentManage() {
   useEffect(() => {
     getClasses().then((res) => setClasses(res.data)).catch(() => {})
     fetchCustomFieldDefinitions()
-  }, [fetchCustomFieldDefinitions])
+    fetchMetricStudents()
+  }, [fetchCustomFieldDefinitions, fetchMetricStudents])
 
   const classMap = Object.fromEntries(classes.map((item) => [item.id, item.name]))
 
@@ -260,6 +289,7 @@ export default function StudentManage() {
 
       closeStudentDrawer()
       fetchData()
+      fetchMetricStudents()
     } catch (err) {
       if (err.message) {
         message.error(err.message)
@@ -272,6 +302,7 @@ export default function StudentManage() {
       await deleteStudent(id)
       message.success('删除成功')
       fetchData()
+      fetchMetricStudents()
     } catch (err) {
       message.error(err.message)
     }
@@ -283,6 +314,7 @@ export default function StudentManage() {
       message.success(`已删除 ${res.data.deleted_count} 条记录`)
       setSelectedRowKeys([])
       fetchData()
+      fetchMetricStudents()
     } catch (err) {
       message.error(err.message)
     }
@@ -377,6 +409,7 @@ export default function StudentManage() {
       setImportFile(null)
       setImportClassId(null)
       fetchData()
+      fetchMetricStudents()
     } catch (err) {
       message.error(err.message)
     }
@@ -497,7 +530,19 @@ export default function StudentManage() {
     },
   ]
 
-  const filteredCount = data.length
+  const classGradeMap = Object.fromEntries(classes.map((item) => [item.id, item.grade]))
+  const gradeDistribution = Object.entries(
+    metricStudents.reduce((accumulator, student) => {
+      const grade = classGradeMap[student.class_id]
+      if (!grade) return accumulator
+      accumulator[grade] = (accumulator[grade] || 0) + 1
+      return accumulator
+    }, {}),
+  )
+    .sort(([left], [right]) => compareGrade(left, right))
+    .map(([grade, count]) => ({ grade, count }))
+  const gradeDistributionSummary = gradeDistribution.map((item) => `${item.grade} ${item.count}`).join(' · ')
+
   const metrics = [
     {
       key: 'students',
@@ -524,11 +569,11 @@ export default function StudentManage() {
       accent: { background: '#ecfdf3', color: '#047857' },
     },
     {
-      key: 'filtered',
-      icon: <FilterOutlined />,
-      label: '当前结果',
-      value: filteredCount,
-      helper: Object.keys(filters).length ? '已应用筛选条件' : '当前展示本页结果',
+      key: 'gradeDistribution',
+      icon: <ApartmentOutlined />,
+      label: '年级分布',
+      value: `${gradeDistribution.length} 个年级`,
+      helper: gradeDistributionSummary || '暂无年级数据',
       accent: { background: '#fff7e6', color: '#b45309' },
     },
   ]
