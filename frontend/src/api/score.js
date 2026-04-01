@@ -1,6 +1,7 @@
 import request from './request'
 
 export const getScores = (params) => request.get('/api/scores', { params })
+export const getScoreEntrySubjects = (params) => request.get('/api/scores/entry-subjects', { params })
 export const createScore = (data) => request.post('/api/scores', data)
 export const updateScore = (id, data) => request.put(`/api/scores/${id}`, data)
 export const upsertScore = (data) => request.put('/api/scores/upsert', data)

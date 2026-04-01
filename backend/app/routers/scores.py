@@ -17,6 +17,7 @@ from app.models.subject import Subject
 from app.models.total_rank import TotalRank
 from app.models.user import User
 from app.schemas.score import ScoreCreate, ScoreUpdate, ScoreItemResponse, ScorePaginatedResponse, BatchDeleteScoresRequest
+from app.services.exam_grade_subjects import load_exam_subjects_for_grade, parse_grade_tokens
 from app.utils.ranking import recalculate_ranks
 
 router = APIRouter(prefix="/api/scores", tags=["成绩管理"])
@@ -233,10 +234,7 @@ def _infer_class_name_columns(headers: list, sample_rows: list[list]) -> tuple[i
 
 
 def _parse_exam_grades(exam_grade_value: str | None) -> set[str]:
-    if not exam_grade_value:
-        return set()
-    normalized = str(exam_grade_value).replace("，", ",").replace("、", ",")
-    return {part.strip() for part in normalized.split(",") if part and part.strip()}
+    return set(parse_grade_tokens(exam_grade_value))
 
 
 def _canonical_header_name(normalized_header: str) -> str | None:
@@ -368,6 +366,39 @@ def _sort_subjects(subjects: list) -> list:
     """Sort subjects by predefined display order, unknown subjects go to end."""
     order_map = {name: i for i, name in enumerate(SUBJECT_DISPLAY_ORDER)}
     return sorted(subjects, key=lambda s: order_map.get(s.name, 999))
+
+
+def _get_student_grade(db: Session, student: Student) -> str:
+    class_row = db.query(Class).filter(Class.id == student.class_id).first()
+    return str(class_row.grade or "").strip() if class_row else ""
+
+
+def _get_exam_subjects_for_student(
+    db: Session,
+    exam: Exam,
+    student: Student,
+    school_id: int | None,
+) -> tuple[str, list[Subject]]:
+    student_grade = _get_student_grade(db, student)
+    subjects = load_exam_subjects_for_grade(db, exam.id, student_grade, school_id)
+    return student_grade, _sort_subjects(subjects)
+
+
+def _validate_exam_subject_scope(
+    db: Session,
+    exam: Exam,
+    student: Student,
+    subject_id: int,
+    school_id: int | None,
+) -> Subject:
+    student_grade, subjects = _get_exam_subjects_for_student(db, exam, student, school_id)
+    if not student_grade or not subjects:
+        raise HTTPException(status_code=400, detail="该学生所在年级未配置本场考试科目")
+    subject_map = {int(subject.id): subject for subject in subjects}
+    subject = subject_map.get(subject_id)
+    if subject is None:
+        raise HTTPException(status_code=400, detail="该科目未配置给该学生所在年级的本场考试")
+    return subject
 
 
 def _get_previous_exam(db: Session, current_exam: Exam):
@@ -552,13 +583,39 @@ def list_scores(
     return ScorePaginatedResponse(items=items, total=total, page=page, page_size=page_size)
 
 
+@router.get("/entry-subjects")
+def get_entry_subjects(
+    exam_id: int,
+    student_id: int,
+    current_user: User = Depends(require_teacher_or_admin),
+    db: Session = Depends(get_db),
+):
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="考试不存在")
+
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="学生不存在")
+
+    accessible = _get_exam_scoped_accessible_class_ids(current_user, db, exam)
+    if accessible is not None and student.class_id not in accessible:
+        raise HTTPException(status_code=403, detail="无权操作该学生")
+
+    school_id = get_user_school_id(current_user)
+    student_grade, subjects = _get_exam_subjects_for_student(db, exam, student, school_id)
+    return {
+        "grade": student_grade,
+        "subjects": [{"id": int(subject.id), "name": subject.name} for subject in subjects],
+    }
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 def create_score(
     req: ScoreCreate,
     current_user: User = Depends(require_teacher_or_admin),
     db: Session = Depends(get_db),
 ):
-    # Validate references
     exam = db.query(Exam).filter(Exam.id == req.exam_id).first()
     if not exam:
         raise HTTPException(status_code=400, detail="考试不存在")
@@ -566,11 +623,13 @@ def create_score(
     student = db.query(Student).filter(Student.id == req.student_id).first()
     if not student:
         raise HTTPException(status_code=400, detail="学生不存在")
+
     accessible = _get_exam_scoped_accessible_class_ids(current_user, db, exam)
     if accessible is not None and student.class_id not in accessible:
         raise HTTPException(status_code=403, detail="无权操作该学生")
-    if not db.query(Subject).filter(Subject.id == req.subject_id).first():
-        raise HTTPException(status_code=400, detail="科目不存在")
+
+    school_id = get_user_school_id(current_user)
+    _validate_exam_subject_scope(db, exam, student, req.subject_id, school_id)
 
     existing = db.query(Score).filter(
         Score.student_id == req.student_id,
@@ -607,11 +666,13 @@ def upsert_score(
     student = db.query(Student).filter(Student.id == req.student_id).first()
     if not student:
         raise HTTPException(status_code=400, detail="学生不存在")
+
     accessible = _get_exam_scoped_accessible_class_ids(current_user, db, exam)
     if accessible is not None and student.class_id not in accessible:
         raise HTTPException(status_code=403, detail="无权操作该学生")
-    if not db.query(Subject).filter(Subject.id == req.subject_id).first():
-        raise HTTPException(status_code=400, detail="科目不存在")
+
+    school_id = get_user_school_id(current_user)
+    _validate_exam_subject_scope(db, exam, student, req.subject_id, school_id)
 
     existing = db.query(Score).filter(
         Score.student_id == req.student_id,
@@ -622,13 +683,14 @@ def upsert_score(
     if existing:
         existing.score = req.score
     else:
-        score = Score(
-            student_id=req.student_id,
-            exam_id=req.exam_id,
-            subject_id=req.subject_id,
-            score=req.score,
+        db.add(
+            Score(
+                student_id=req.student_id,
+                exam_id=req.exam_id,
+                subject_id=req.subject_id,
+                score=req.score,
+            )
         )
-        db.add(score)
 
     db.flush()
     recalculate_ranks(db, req.exam_id)
@@ -800,15 +862,10 @@ def export_scores(
 
     accessible = _get_exam_scoped_accessible_class_ids(current_user, db, exam)
     school_id = get_user_school_id(current_user)
+    class_rows = db.query(Class).all()
+    class_map = {c.id: c.name for c in class_rows}
+    class_grade_map = {c.id: c.grade for c in class_rows}
 
-    subject_query = db.query(Subject)
-    if school_id is not None:
-        subject_query = subject_query.filter(Subject.school_id == school_id)
-    subjects = _sort_subjects(subject_query.all())
-    subject_map = {s.id: s.name for s in subjects}
-    class_map = {c.id: c.name for c in db.query(Class).all()}
-
-    # Get students with scores
     score_query = db.query(Score).filter(Score.exam_id == exam_id)
     student_ids = [r[0] for r in score_query.with_entities(Score.student_id).distinct().all()]
 
@@ -827,32 +884,38 @@ def export_scores(
         for tr in db.query(TotalRank).filter(TotalRank.exam_id == exam_id, TotalRank.student_id.in_(sid_list)).all()
     }
 
-    # Group scores
-    student_scores = {}
+    student_scores: dict[int, dict[int, float]] = {}
     for sc in scores:
-        if sc.student_id not in student_scores:
-            student_scores[sc.student_id] = {}
-        student_scores[sc.student_id][sc.subject_id] = sc.score
+        student_scores.setdefault(sc.student_id, {})[sc.subject_id] = sc.score
 
     wb = Workbook()
-    ws = wb.active
-    ws.title = f"{exam.name} 成绩"
-    headers = ["学号", "姓名", "班级"]
-    for subj in subjects:
-        headers.append(subj.name)
-    headers.extend(["总分", "班级排名", "年级排名"])
-    ws.append(headers)
+    wb.remove(wb.active)
 
-    for s in students:
-        row = [s.student_no, s.name, class_map.get(s.class_id, "")]
-        ss = student_scores.get(s.id, {})
-        for subj in subjects:
-            row.append(ss.get(subj.id, ""))
-        rank = ranks.get(s.id)
-        row.append(rank.total_score if rank else "")
-        row.append(rank.rank_class if rank else "")
-        row.append(rank.rank_grade if rank else "")
-        ws.append(row)
+    grade_order = parse_grade_tokens(exam.grade)
+    for grade in grade_order:
+        grade_subjects = load_exam_subjects_for_grade(db, exam.id, grade, school_id)
+        if not grade_subjects:
+            continue
+
+        grade_students = [student for student in students if class_grade_map.get(student.class_id) == grade]
+        ws = wb.create_sheet(title=grade)
+        headers = ["学号", "姓名", "班级"] + [subject.name for subject in grade_subjects] + ["总分", "班级排名", "年级排名"]
+        ws.append(headers)
+
+        for student in grade_students:
+            row = [student.student_no, student.name, class_map.get(student.class_id, "")]
+            score_map = student_scores.get(student.id, {})
+            for subject in grade_subjects:
+                row.append(score_map.get(subject.id, ""))
+            rank = ranks.get(student.id)
+            total_score = rank.total_score if rank else sum(score_map.get(subject.id, 0) for subject in grade_subjects)
+            row.append(total_score if total_score else "")
+            row.append(rank.rank_class if rank else "")
+            row.append(rank.rank_grade if rank else "")
+            ws.append(row)
+
+    if not wb.sheetnames:
+        wb.create_sheet(title="成绩")
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -872,6 +935,7 @@ def import_scores(
     current_user: User = Depends(require_teacher_or_admin),
     db: Session = Depends(get_db),
 ):
+
     if not file.filename.endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="请上传 Excel 文件")
 
@@ -913,10 +977,9 @@ def import_scores(
         key = (s.class_id, _normalize_header_text(s.name))
         students_by_class_and_name.setdefault(key, []).append(s)
 
-    subject_query = db.query(Subject)
-    if school_id is not None:
-        subject_query = subject_query.filter(Subject.school_id == school_id)
-    subjects = subject_query.all()
+    subjects = load_exam_subjects_for_grade(db, exam.id, selected_grade, school_id)
+    if not subjects:
+        raise HTTPException(status_code=400, detail="????????????")
     subject_map = {s.name: s for s in subjects}
 
     wb = load_workbook(file.file)

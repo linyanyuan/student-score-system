@@ -109,6 +109,18 @@ body {
   gap: 20px;
 }
 
+.teacher-manage-focus-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.7fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.teacher-manage-side-stack {
+  display: grid;
+  gap: 20px;
+}
+
 .home-focus-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);

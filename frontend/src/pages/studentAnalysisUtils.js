@@ -1,10 +1,10 @@
 const SUBJECT_NAME = {
-  chinese: "\u8bed\u6587",
-  chineseShort: "\u8bed",
-  math: "\u6570\u5b66",
-  mathShort: "\u6570",
-  english: "\u82f1\u8bed",
-  englishShort: "\u82f1",
+  chinese: "语文",
+  chineseShort: "语",
+  math: "数学",
+  mathShort: "数",
+  english: "英语",
+  englishShort: "英",
 }
 
 const DEFAULT_SUBJECT_FULL_SCORES = {

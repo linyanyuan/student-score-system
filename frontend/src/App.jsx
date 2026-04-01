@@ -7,7 +7,6 @@ import Home from './pages/Home'
 import ClassManage from './pages/ClassManage'
 import SubjectManage from './pages/SubjectManage'
 import TeacherClassManage from './pages/TeacherClassManage'
-import CustomFieldManage from './pages/CustomFieldManage'
 import StudentManage from './pages/StudentManage'
 import ExamManage from './pages/ExamManage'
 import ScoreManage from './pages/ScoreManage'
@@ -30,7 +29,6 @@ export default function App() {
               <Route path="/classes" element={<ClassManage />} />
               <Route path="/subjects" element={<SubjectManage />} />
               <Route path="/teacher-classes" element={<TeacherClassManage />} />
-              <Route path="/custom-fields" element={<CustomFieldManage />} />
               <Route path="/students" element={<StudentManage />} />
               <Route path="/exams" element={<ExamManage />} />
               <Route path="/scores" element={<ScoreManage />} />
