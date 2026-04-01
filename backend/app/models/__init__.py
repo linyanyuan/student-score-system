@@ -6,6 +6,7 @@ from app.models.teacher_class import TeacherClass
 from app.models.custom_field import CustomFieldDefinition
 from app.models.student import Student
 from app.models.exam import Exam
+from app.models.exam_grade_subject import ExamGradeSubject
 from app.models.score import Score
 from app.models.total_rank import TotalRank
 from app.models.schedule_period import SchedulePeriod
@@ -26,7 +27,7 @@ from app.models.score_full_score_config import ScoreFullScoreConfig
 
 __all__ = [
     "School", "User", "Class", "Subject", "TeacherClass", "CustomFieldDefinition",
-    "Student", "Exam", "Score", "TotalRank",
+    "Student", "Exam", "ExamGradeSubject", "Score", "TotalRank",
     "SchedulePeriod", "TeacherSchedule", "TeacherClassSubject", "LessonPlan",
     "LessonPlanOverride", "TeacherTimeConstraint", "TimetableLock",
     "ClassTimetable", "ScheduleTask", "ScheduleDraft", "ScheduleDraftItem",
