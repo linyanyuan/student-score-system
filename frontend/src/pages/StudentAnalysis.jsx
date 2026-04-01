@@ -211,7 +211,9 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
     yField: 'rank',
     seriesField: 'type',
     colorField: 'type',
-    axis: { y: { nice: true, reverse: true } },
+    scale: {
+      y: { nice: true, range: [0,1] },
+    },
     point: { size: 4 },
     smooth: true,
     legend: { position: 'top' },
@@ -300,7 +302,7 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
 
             <Col xs={24} lg={12}>
               <Card
-                title="单科历次趋势"
+                title="单科分数历次趋势"  
                 size="small"
                 extra={
                   <Select

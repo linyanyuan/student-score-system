@@ -88,7 +88,6 @@ export default function ScoreManage() {
 
   const [addModalOpen, setAddModalOpen] = useState(false)
   const [selectedEntryStudent, setSelectedEntryStudent] = useState(null)
-  const [entryStudentKeyword, setEntryStudentKeyword] = useState('')
   const [entrySubjects, setEntrySubjects] = useState([])
   const [entryLoading, setEntryLoading] = useState(false)
 
@@ -160,18 +159,9 @@ export default function ScoreManage() {
 
   const visibleSubjectsForEdit = useMemo(() => editSubjects, [editSubjects])
 
-  const filteredEntryStudents = useMemo(() => {
-    const keyword = entryStudentKeyword.trim().toLowerCase()
-    if (!keyword) return []
-    return students
-      .filter((student) => `${student.student_no || ''} ${student.name || ''}`.toLowerCase().includes(keyword))
-      .slice(0, 50)
-  }, [entryStudentKeyword, students])
-
   const closeAddModal = () => {
     setAddModalOpen(false)
     setSelectedEntryStudent(null)
-    setEntryStudentKeyword('')
     setEntrySubjects([])
     addForm.resetFields()
   }
@@ -563,26 +553,22 @@ export default function ScoreManage() {
 
       <Modal title="录入成绩" open={addModalOpen} onOk={handleAdd} onCancel={closeAddModal} width={520}>
         <Form form={addForm} layout="vertical">
-          <Form.Item label="搜索学生">
-            <Input
-              value={entryStudentKeyword}
-              onChange={(event) => setEntryStudentKeyword(event.target.value)}
-              placeholder="输入学生姓名或学号"
-              prefix={<SearchOutlined />}
-            />
-          </Form.Item>
           <Form.Item name="student_id" label="学生" rules={[{ required: true, message: '请选择学生' }]}>
             <Select
               showSearch
-              filterOption={false}
-              optionFilterProp="label"
-              placeholder="先输入学生姓名或学号，再选择学生"
+              filterOption={(input, option) =>
+                String(option?.searchText || option?.label || '')
+                  .toLowerCase()
+                  .includes(input.toLowerCase())
+              }
+              placeholder="输入学生姓名或学号联想选择"
               value={selectedEntryStudent}
               loading={entryLoading}
               onChange={handleEntryStudentChange}
-              options={filteredEntryStudents.map((student) => ({
+              options={students.map((student) => ({
                 label: `${student.student_no} - ${student.name}`,
                 value: student.id,
+                searchText: `${student.student_no || ''} ${student.name || ''}`,
               }))}
             />
           </Form.Item>
