@@ -1,15 +1,16 @@
-﻿import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Row, Col, Card, Select, Table, Tag, Spin, Empty, Typography, Tooltip, Divider } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
-import { Column, Bar } from '@ant-design/charts'
+import { Bar, Column } from '@ant-design/charts'
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
+import { buildRankChartRowsWithGradeAverage } from './studentAnalysisUtils'
 import {
+  getClassBiasedStudents,
+  getClassBottomStudents,
+  getClassDistribution,
   getClassesRank,
   getExamSubjectThreeRatesOneScoreRank,
-  getClassDistribution,
-  getClassBottomStudents,
-  getClassBiasedStudents,
 } from '../api/analysis'
 
 const { Text } = Typography
@@ -18,17 +19,19 @@ function DistributionChart({ data }) {
   if (!data || (data.excellent_rate === 0 && data.good_rate === 0 && data.pass_rate === 0 && data.fail_rate === 0)) {
     return <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
   }
+
   const chartData = [
     { type: '优秀(≥90%)', value: data.excellent_rate || 0, count: data.excellent_count || 0 },
     { type: '良好(80-89%)', value: data.good_rate || 0, count: data.good_count || 0 },
     { type: '合格(60-79%)', value: data.pass_rate || 0, count: data.pass_count || 0 },
     { type: '不合格(<60%)', value: data.fail_rate || 0, count: data.fail_count || 0 },
   ]
+
   const config = {
     data: chartData,
     xField: 'type',
     yField: 'value',
-    axis: { y: { labelFormatter: (v) => `${(v * 100).toFixed(0)}%` } },
+    axis: { y: { labelFormatter: (value) => `${(value * 100).toFixed(0)}%` } },
     label: {
       position: 'top',
       style: {
@@ -46,10 +49,11 @@ function DistributionChart({ data }) {
     scale: { color: { range: ['#52c41a', '#1890ff', '#faad14', '#ff4d4f'] } },
     colorField: 'type',
     tooltip: {
-      title: (d) => d?.type || '-',
-      items: [{ field: 'count', name: '人数', valueFormatter: (v) => `${v}人` }],
+      title: (datum) => datum?.type || '-',
+      items: [{ field: 'count', name: '人数', valueFormatter: (value) => `${value}人` }],
     },
   }
+
   return <Column {...config} height={220} />
 }
 
@@ -58,23 +62,49 @@ function buildBarRankConfig(data) {
     data,
     xField: 'class_name',
     yField: 'avg_score',
-    legend: false,
     colorField: 'class_name',
+    legend: false,
+    scale: {
+      color: {
+        range: ['#4f46e5', '#0891b2', '#16a34a', '#dc2626', '#7c3aed', '#ea580c', '#2563eb', '#ca8a04'],
+      },
+    },
+    style: {
+      radiusTopLeft: 6,
+      radiusBottomLeft: 6,
+      fillOpacity: (datum) => (datum?.item_type === 'grade_avg' ? 1 : 0.88),
+      lineWidth: (datum) => (datum?.item_type === 'grade_avg' ? 3 : 1),
+      stroke: (datum) => (datum?.item_type === 'grade_avg' ? '#b45309' : '#ffffff'),
+    },
     labels: [
       {
         position: 'right',
-        text: (datum) => datum?.avg_score?.toFixed(2) ?? '-',
+        text: (datum) => {
+          const prefix = datum?.item_type === 'grade_avg' ? '年级均分 ' : ''
+          return `${prefix}${datum?.avg_score?.toFixed(2) ?? '-'}`
+        },
         style: {
-          fill: '#f01010',
-          fontWeight: 600,
-          dx: 50,
+          fill: (datum) => (datum?.item_type === 'grade_avg' ? '#b45309' : '#1f2937'),
+          fontWeight: (datum) => (datum?.item_type === 'grade_avg' ? 800 : 600),
+          dx: 16,
         },
       },
     ],
     axis: { y: { labelAutoRotate: false } },
     tooltip: {
-      title: (d) => d.class_name,
-      items: [{ field: 'avg_score', name: '平均分', valueFormatter: (v) => Number(v).toFixed(2) }],
+      title: (datum) => datum.class_name,
+      items: [
+        {
+          field: 'avg_score',
+          name: '图中分值',
+          valueFormatter: (value) => Number(value).toFixed(2),
+        },
+        {
+          field: 'grade_avg',
+          name: '所属年级均分',
+          valueFormatter: (value) => Number(value).toFixed(2),
+        },
+      ],
     },
   }
 }
@@ -98,16 +128,14 @@ export default function ClassAnalysis({ examId }) {
 
   useEffect(() => {
     getClasses().then((res) => setClasses(res.data || [])).catch(() => setClasses([]))
-    getSubjects().then((res) => {
-      const subjectList = res.data || []
-      setSubjects(subjectList)
-      if (!selectedRankSubjectId && subjectList.length > 0) {
-        setSelectedRankSubjectId(subjectList[0].id)
-      }
-      if (!selectedThreeRateSubjectId && subjectList.length > 0) {
-        setSelectedThreeRateSubjectId(subjectList[0].id)
-      }
-    }).catch(() => setSubjects([]))
+    getSubjects()
+      .then((res) => {
+        const subjectList = res.data || []
+        setSubjects(subjectList)
+        if (!selectedRankSubjectId && subjectList.length > 0) setSelectedRankSubjectId(subjectList[0].id)
+        if (!selectedThreeRateSubjectId && subjectList.length > 0) setSelectedThreeRateSubjectId(subjectList[0].id)
+      })
+      .catch(() => setSubjects([]))
   }, [])
 
   useEffect(() => {
@@ -116,10 +144,7 @@ export default function ClassAnalysis({ examId }) {
       return
     }
     getClassesRank(examId, undefined)
-      .then((res) => {
-        const data = (res.data || []).sort((a, b) => b.avg_score - a.avg_score)
-        setTotalRankData(data)
-      })
+      .then((res) => setTotalRankData(buildRankChartRowsWithGradeAverage(res.data || [])))
       .catch(() => setTotalRankData([]))
   }, [examId])
 
@@ -129,10 +154,7 @@ export default function ClassAnalysis({ examId }) {
       return
     }
     getClassesRank(examId, selectedRankSubjectId)
-      .then((res) => {
-        const data = (res.data || []).sort((a, b) => b.avg_score - a.avg_score)
-        setSubjectRankData(data)
-      })
+      .then((res) => setSubjectRankData(buildRankChartRowsWithGradeAverage(res.data || [])))
       .catch(() => setSubjectRankData([]))
   }, [examId, selectedRankSubjectId])
 
@@ -149,7 +171,6 @@ export default function ClassAnalysis({ examId }) {
       .catch(() => setThreeRateRankData([]))
   }, [examId, selectedThreeRateSubjectId])
 
-  // Fetch single-class deep analysis when classId or examId changes
   useEffect(() => {
     if (!classId || !examId) {
       setDistribution(null)
@@ -157,6 +178,7 @@ export default function ClassAnalysis({ examId }) {
       setBiasedStudents([])
       return
     }
+
     setLoading(true)
     Promise.all([
       getClassDistribution(classId, examId),
@@ -191,11 +213,11 @@ export default function ClassAnalysis({ examId }) {
     dataIndex: ['subjects', name],
     key: name,
     width: 70,
-    render: (val, record) => {
+    render: (value, record) => {
       const isWeak = record.weak_subjects?.includes(name) || record.weak_subject === name
       return (
         <span style={{ color: isWeak ? '#ff4d4f' : undefined, fontWeight: isWeak ? 600 : undefined }}>
-          {val ?? '-'}
+          {value ?? '-'}
         </span>
       )
     },
@@ -211,7 +233,7 @@ export default function ClassAnalysis({ examId }) {
       title: '薄弱科目',
       dataIndex: 'weak_subjects',
       key: 'weak_subjects',
-      render: (val) => val?.map((s) => <Tag color="red" key={s}>{s}</Tag>),
+      render: (value) => value?.map((item) => <Tag color="red" key={item}>{item}</Tag>),
     },
   ]
 
@@ -224,7 +246,7 @@ export default function ClassAnalysis({ examId }) {
       title: '偏科科目',
       dataIndex: 'weak_subjects',
       key: 'weak_subjects',
-      render: (val) => val?.map((s) => <Tag color="orange" key={s}>{s}</Tag>),
+      render: (value) => value?.map((item) => <Tag color="orange" key={item}>{item}</Tag>),
     },
   ]
 
@@ -269,15 +291,14 @@ export default function ClassAnalysis({ examId }) {
 
   const distSubjectOptions = distribution
     ? [
-      { value: 'total', label: '总分' },
-      ...Object.keys(distribution.subjects || {}).map((name) => ({ value: name, label: name })),
-    ]
+        { value: 'total', label: '总分' },
+        ...Object.keys(distribution.subjects || {}).map((name) => ({ value: name, label: name })),
+      ]
     : [{ value: 'total', label: '总分' }]
 
-  const currentDistData =
-    selectedSubjectDist === 'total'
-      ? distribution?.total
-      : distribution?.subjects?.[selectedSubjectDist]
+  const currentDistData = selectedSubjectDist === 'total'
+    ? distribution?.total
+    : distribution?.subjects?.[selectedSubjectDist]
 
   return (
     <div>
@@ -290,7 +311,7 @@ export default function ClassAnalysis({ examId }) {
             style={{ width: 180 }}
             value={classId}
             onChange={setClassId}
-            options={classes.map((c) => ({ value: c.id, label: c.name }))}
+            options={classes.map((item) => ({ value: item.id, label: item.name }))}
           />
         </Col>
       </Row>
@@ -304,28 +325,29 @@ export default function ClassAnalysis({ examId }) {
               <Card
                 title="科目平均分排名"
                 size="small"
-                extra={
+                extra={(
                   <Select
                     size="small"
                     style={{ width: 160 }}
                     value={selectedRankSubjectId}
                     onChange={setSelectedRankSubjectId}
-                    options={subjects.map((s) => ({ value: s.id, label: s.name }))}
+                    options={subjects.map((item) => ({ value: item.id, label: item.name }))}
                     placeholder="选择科目"
                   />
-                }
+                )}
               >
                 {selectedRankSubjectId && subjectRankData.length > 0 ? (
-                  <Bar {...subjectRankConfig} height={260} />
+                  <Bar {...subjectRankConfig} height={300} />
                 ) : (
                   <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 )}
               </Card>
             </Col>
+
             <Col xs={24} lg={12}>
               <Card title="班级平均分排名" size="small">
                 {totalRankData.length > 0 ? (
-                  <Bar {...totalRankConfig} height={260} />
+                  <Bar {...totalRankConfig} height={300} />
                 ) : (
                   <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 )}
@@ -338,16 +360,16 @@ export default function ClassAnalysis({ examId }) {
               <Card
                 title="三率一分排名"
                 size="small"
-                extra={
+                extra={(
                   <Select
                     size="small"
                     style={{ width: 160 }}
                     value={selectedThreeRateSubjectId}
                     onChange={setSelectedThreeRateSubjectId}
-                    options={subjects.map((s) => ({ value: s.id, label: s.name }))}
+                    options={subjects.map((item) => ({ value: item.id, label: item.name }))}
                     placeholder="选择科目"
                   />
-                }
+                )}
               >
                 <Table
                   dataSource={threeRateRankData}
@@ -369,63 +391,64 @@ export default function ClassAnalysis({ examId }) {
                   以下为所选班级的深度分析
                 </Text>
               </Divider>
+
               <Spin spinning={loading}>
                 <Row gutter={[16, 16]}>
-                <Col xs={24}>
-                  <Card
-                    title="成绩分布"
-                    size="small"
-                    extra={
-                      <Select
+                  <Col xs={24}>
+                    <Card
+                      title="成绩分布"
+                      size="small"
+                      extra={(
+                        <Select
+                          size="small"
+                          style={{ width: 100 }}
+                          value={selectedSubjectDist}
+                          onChange={setSelectedSubjectDist}
+                          options={distSubjectOptions}
+                        />
+                      )}
+                    >
+                      <DistributionChart data={currentDistData} />
+                    </Card>
+                  </Col>
+
+                  <Col xs={24}>
+                    <Card
+                      title={(
+                        <span>
+                          偏科生分析{' '}
+                          <Tooltip title="仅统计班级总分排名前 40 名的同学。若某同学任意科目成绩低于本班本次考试该科平均分，则视为偏科生。">
+                            <QuestionCircleOutlined style={{ color: '#999', cursor: 'pointer' }} />
+                          </Tooltip>
+                        </span>
+                      )}
+                      size="small"
+                    >
+                      <Table
+                        dataSource={biasedStudents}
+                        columns={biasedColumns}
+                        rowKey="student_no"
                         size="small"
-                        style={{ width: 100 }}
-                        value={selectedSubjectDist}
-                        onChange={setSelectedSubjectDist}
-                        options={distSubjectOptions}
+                        pagination={false}
+                        scroll={{ x: 'max-content' }}
+                        locale={{ emptyText: '暂无偏科生' }}
                       />
-                    }
-                  >
-                    <DistributionChart data={currentDistData} />
-                  </Card>
-                </Col>
+                    </Card>
+                  </Col>
 
-                <Col xs={24}>
-                  <Card
-                    title={
-                      <span>
-                        偏科生分析{' '}
-                        <Tooltip title="仅统计班级总分排名前 40 名的同学。若某同学任意科目成绩低于本班本次考试该科平均分，则视为偏科生。">
-                          <QuestionCircleOutlined style={{ color: '#999', cursor: 'pointer' }} />
-                        </Tooltip>
-                      </span>
-                    }
-                    size="small"
-                  >
-                    <Table
-                      dataSource={biasedStudents}
-                      columns={biasedColumns}
-                      rowKey="student_no"
-                      size="small"
-                      pagination={false}
-                      scroll={{ x: 'max-content' }}
-                      locale={{ emptyText: '暂无偏科生' }}
-                    />
-                  </Card>
-                </Col>
-
-                <Col xs={24}>
-                  <Card title="后进生分析（总分排名靠后）" size="small">
-                    <Table
-                      dataSource={bottomStudents}
-                      columns={bottomColumns}
-                      rowKey="student_no"
-                      size="small"
-                      pagination={false}
-                      scroll={{ x: 'max-content' }}
-                      locale={{ emptyText: '暂无数据' }}
-                    />
-                  </Card>
-                </Col>
+                  <Col xs={24}>
+                    <Card title="后进生分析（总分排名靠后）" size="small">
+                      <Table
+                        dataSource={bottomStudents}
+                        columns={bottomColumns}
+                        rowKey="student_no"
+                        size="small"
+                        pagination={false}
+                        scroll={{ x: 'max-content' }}
+                        locale={{ emptyText: '暂无数据' }}
+                      />
+                    </Card>
+                  </Col>
                 </Row>
               </Spin>
             </>

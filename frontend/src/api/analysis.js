@@ -13,6 +13,9 @@ export const getStudentRankTrend = (studentId) =>
 export const getStudentSubjectComparison = (studentId, examId) =>
   request.get(`/api/analysis/student/${studentId}/subject-comparison`, { params: { exam_id: examId } })
 
+export const getStudentScoreComparison = (studentId, examId) =>
+  request.get(`/api/analysis/student/${studentId}/score-comparison`, { params: { exam_id: examId } })
+
 // 班级分析
 export const getClassesRank = (examId, subjectId) =>
   request.get('/api/analysis/classes/rank', { params: { exam_id: examId, subject_id: subjectId } })
