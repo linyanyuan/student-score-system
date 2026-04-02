@@ -47,8 +47,8 @@ class SchedulingDraftApiTests(unittest.TestCase):
         self.db.refresh(self.subject)
 
         self.db.add_all([
-            SchedulePeriod(name='第1节', start_time='08:00', end_time='08:45', sort_order=1, is_active=True, include_in_auto_schedule=True),
-            SchedulePeriod(name='第2节', start_time='08:55', end_time='09:40', sort_order=2, is_active=True, include_in_auto_schedule=True),
+            SchedulePeriod(name='第1节', start_time='08:00', end_time='08:45', school_id=self.school.id, sort_order=1, is_active=True, include_in_auto_schedule=True),
+            SchedulePeriod(name='第2节', start_time='08:55', end_time='09:40', school_id=self.school.id, sort_order=2, is_active=True, include_in_auto_schedule=True),
         ])
         self.db.commit()
 

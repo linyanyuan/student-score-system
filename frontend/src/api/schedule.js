@@ -20,6 +20,11 @@ export const deleteSchedulePeriod = (id) => {
   return request.delete(`/api/schedule-periods/${id}`)
 }
 
+// 生成默认节次模板（仅学校管理员）
+export const generateDefaultSchedulePeriodTemplate = () => {
+  return request.post('/api/schedule-periods/default-template')
+}
+
 // 获取当前教师的课表
 export const getMySchedule = () => {
   return request.get('/api/teacher-schedules/my-schedule')

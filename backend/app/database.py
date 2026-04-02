@@ -32,6 +32,7 @@ def ensure_sqlite_user_schema_compat(bind: Engine) -> None:
         "subjects",
         "custom_field_definitions",
         "exams",
+        "schedule_periods",
     }
 
     missing_statements: list[str] = []
@@ -66,7 +67,8 @@ def ensure_sqlite_user_schema_compat(bind: Engine) -> None:
             missing_statements.append(
                 "ALTER TABLE schedule_periods ADD COLUMN include_in_auto_schedule BOOLEAN NOT NULL DEFAULT 1"
             )
-
+        if "school_id" not in columns:
+            missing_statements.append("ALTER TABLE schedule_periods ADD COLUMN school_id INTEGER")
     if missing_statements:
         with bind.begin() as conn:
             for statement in missing_statements:

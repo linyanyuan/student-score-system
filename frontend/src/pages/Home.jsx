@@ -3,7 +3,7 @@ import { Typography, Card, Table, Tag, Button, Modal, Form, Input, InputNumber, 
 import { BookOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SettingOutlined, CalendarOutlined, ClockCircleOutlined, ReadOutlined, UserOutlined, TeamOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { getDailyQuote, getMySchedule, getMemos, createMemo, updateMemo, deleteMemo, updateMemoStatus, getSchedulePeriods, createSchedulePeriod, createOrUpdateSchedule, deleteSchedule, updateSchedulePeriod } from '../api/schedule'
+import { getDailyQuote, getMySchedule, getMemos, createMemo, updateMemo, deleteMemo, updateMemoStatus, getSchedulePeriods, createSchedulePeriod, createOrUpdateSchedule, deleteSchedule, updateSchedulePeriod, deleteSchedulePeriod, generateDefaultSchedulePeriodTemplate } from '../api/schedule'
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
 import { getClassTimetable, getTeacherTimetable, getMyTimetable, getScheduleTeachers } from '../api/scheduling'
@@ -165,18 +165,13 @@ function TimetableView({ items, periods, showClass = false, showTeacher = true, 
 }
 
 // ── 管理员课表区域 ─────────────────────────────────────────────────────────────
-function AdminTimetableSection({ classes, teachers }) {
+function AdminTimetableSection({ classes, teachers, periods }) {
   const [filterGrade, setFilterGrade] = useState('')
   const [filterClassId, setFilterClassId] = useState(null)
   const [filterTeacherId, setFilterTeacherId] = useState(null)
   const [timetableItems, setTimetableItems] = useState([])
-  const [periods, setPeriods] = useState([])
   const [loading, setLoading] = useState(false)
   const [activeMode, setActiveMode] = useState('class') // 'class' | 'teacher'
-
-  useEffect(() => {
-    getSchedulePeriods().then(r => setPeriods(r.data || [])).catch(() => {})
-  }, [])
 
   const gradeOptions = useMemo(() => {
     const grades = Array.from(new Set(classes.map(c => c.grade).filter(Boolean))).sort()
@@ -318,16 +313,14 @@ function AdminTimetableSection({ classes, teachers }) {
 }
 
 // ── 教师课表区域 ───────────────────────────────────────────────────────────────
-function TeacherTimetableSection({ user, teacherClasses }) {
+function TeacherTimetableSection({ user, teacherClasses, periods }) {
   const [myItems, setMyItems] = useState([])
   const [classItems, setClassItems] = useState([])
-  const [periods, setPeriods] = useState([])
   const [myLoading, setMyLoading] = useState(false)
   const [classLoading, setClassLoading] = useState(false)
   const [selectedClassId, setSelectedClassId] = useState(null)
 
   useEffect(() => {
-    getSchedulePeriods().then(r => setPeriods(r.data || [])).catch(() => {})
     setMyLoading(true)
     getMyTimetable()
       .then(r => setMyItems(r.data?.items || []))
@@ -401,13 +394,11 @@ function TeacherTimetableSection({ user, teacherClasses }) {
 }
 
 // ── 学生课表区域 ───────────────────────────────────────────────────────────────
-function StudentTimetableSection({ user }) {
+function StudentTimetableSection({ user, periods }) {
   const [items, setItems] = useState([])
-  const [periods, setPeriods] = useState([])
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    getSchedulePeriods().then(r => setPeriods(r.data || [])).catch(() => {})
     setLoading(true)
     getMyTimetable()
       .then(r => setItems(r.data?.items || []))
@@ -463,6 +454,8 @@ export default function Home() {
   const [editingMemo, setEditingMemo] = useState(null)
   const [editingSchedule, setEditingSchedule] = useState(null)
   const [editingPeriod, setEditingPeriod] = useState(null)
+  const [selectedPeriod, setSelectedPeriod] = useState(null)
+  const [generatingDefaultPeriodTemplate, setGeneratingDefaultPeriodTemplate] = useState(false)
   const [memoForm] = Form.useForm()
   const [scheduleForm] = Form.useForm()
   const [periodForm] = Form.useForm()
@@ -637,21 +630,93 @@ export default function Home() {
     }
   }
 
-  const handleEditPeriod = (period) => {
-    setEditingPeriod(period)
+  const setPeriodFormValues = (period) => {
     periodForm.setFieldsValue({
       name: period.name,
       start_time: dayjs(period.start_time, 'HH:mm'),
       end_time: dayjs(period.end_time, 'HH:mm')
     })
+  }
+
+  const handleEditPeriod = (period) => {
+    setSelectedPeriod(period)
+    setEditingPeriod(period)
+    setPeriodFormValues(period)
     setPeriodModalVisible(true)
   }
 
   const handleManagePeriods = () => {
+    setSelectedPeriod(null)
     setEditingPeriod(null)
     periodForm.resetFields()
     periodForm.setFieldsValue({ sort_order: periods.length + 1 })
     setPeriodModalVisible(true)
+  }
+
+  const handleAddPeriodAfterSelected = () => {
+    if (!selectedPeriod) {
+      return
+    }
+
+    const selectedStart = dayjs(selectedPeriod.start_time, 'HH:mm')
+    const selectedEnd = dayjs(selectedPeriod.end_time, 'HH:mm')
+    const duration = Math.max(selectedEnd.diff(selectedStart, 'minute'), 1)
+
+    setEditingPeriod(null)
+    periodForm.resetFields()
+    periodForm.setFieldsValue({
+      name: '',
+      sort_order: selectedPeriod.sort_order + 1,
+      start_time: selectedEnd,
+      end_time: selectedEnd.add(duration, 'minute')
+    })
+    setPeriodModalVisible(true)
+  }
+
+  const handleDeleteSelectedPeriod = () => {
+    if (!selectedPeriod) {
+      return
+    }
+
+    Modal.confirm({
+      title: '删除选中节次',
+      content: `确定删除 ${selectedPeriod.name} 吗？`,
+      okText: '删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await deleteSchedulePeriod(selectedPeriod.id)
+          message.success('删除成功')
+          setSelectedPeriod(null)
+          setEditingPeriod(null)
+          setPeriodModalVisible(false)
+          periodForm.resetFields()
+          await loadData()
+        } catch (error) {
+          message.error(error.message || '删除失败')
+        }
+      }
+    })
+  }
+
+  const handleGenerateDefaultPeriodTemplate = async () => {
+    try {
+      setGeneratingDefaultPeriodTemplate(true)
+      const response = await generateDefaultSchedulePeriodTemplate()
+      const generatedPeriods = response.data || []
+      setPeriods(generatedPeriods)
+      if (generatedPeriods[0]) {
+        setSelectedPeriod(generatedPeriods[0])
+        setEditingPeriod(generatedPeriods[0])
+        setPeriodFormValues(generatedPeriods[0])
+      }
+      message.success('默认节次模板已生成')
+    } catch (error) {
+      message.error(error.message || '生成默认节次模板失败')
+    } finally {
+      setGeneratingDefaultPeriodTemplate(false)
+    }
   }
 
   const handlePeriodSubmit = async () => {
@@ -659,8 +724,18 @@ export default function Home() {
       const values = await periodForm.validateFields()
 
       if (isCreatingPeriod(editingPeriod)) {
-        await createSchedulePeriod(buildSchedulePeriodPayload(values))
+        const targetSortOrder = Number(values.sort_order ?? (selectedPeriod ? selectedPeriod.sort_order + 1 : periods.length + 1))
+        const periodsToShift = periods
+          .filter(period => period.sort_order >= targetSortOrder)
+          .sort((left, right) => right.sort_order - left.sort_order)
+
+        for (const period of periodsToShift) {
+          await updateSchedulePeriod(period.id, { sort_order: period.sort_order + 1 })
+        }
+
+        await createSchedulePeriod(buildSchedulePeriodPayload({ ...values, sort_order: targetSortOrder }))
         message.success('创建成功')
+        setSelectedPeriod(null)
         setPeriodModalVisible(false)
         setEditingPeriod(null)
         periodForm.resetFields()
@@ -692,7 +767,7 @@ export default function Home() {
         await updatePeriodWithAdjustment(editingPeriod.id, values, 0, false)
       }
     } catch (error) {
-      message.error('操作失败')
+      message.error(error.message || '操作失败')
     }
   }
 
@@ -706,7 +781,6 @@ export default function Home() {
 
       await updateSchedulePeriod(periodId, data)
 
-      // 如果需要调整其他节次
       if (adjustOthers && timeDiff !== 0) {
         const currentIndex = periods.findIndex(p => p.id === periodId)
         const laterPeriods = periods.slice(currentIndex + 1)
@@ -725,10 +799,11 @@ export default function Home() {
       }
 
       message.success('更新成功')
+      setSelectedPeriod(null)
       setPeriodModalVisible(false)
-      loadData()
+      await loadData()
     } catch (error) {
-      message.error('更新失败')
+      message.error(error.message || '更新失败')
     }
   }
 
@@ -888,9 +963,9 @@ export default function Home() {
               </Space>
             ) : null}
           >
-            {user?.role === 'school_admin' && <AdminTimetableSection classes={classes} teachers={teachers} />}
-            {user?.role === 'teacher' && <TeacherTimetableSection user={user} teacherClasses={classes} />}
-            {user?.role === 'student' && <StudentTimetableSection user={user} />}
+            {user?.role === 'school_admin' && <AdminTimetableSection classes={classes} teachers={teachers} periods={periods} />}
+            {user?.role === 'teacher' && <TeacherTimetableSection user={user} teacherClasses={classes} periods={periods} />}
+            {user?.role === 'student' && <StudentTimetableSection user={user} periods={periods} />}
           </WorkspaceSectionCard>
         )}
 
@@ -1009,14 +1084,45 @@ export default function Home() {
         footer={undefined}
         width={600}
       >
-        {isCreatingPeriodMode && periods.length === 0 && (
-          <div style={{ marginBottom: 12, padding: 12, background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 4, color: '#ad4e00' }}>
-            当前暂无节次数据，请先补充节次信息后再进行编辑。
+        {periods.length === 0 && (
+          <div style={{ marginBottom: 16, padding: 16, background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 8, color: '#ad4e00' }}>
+            <div style={{ fontWeight: 600, marginBottom: 8 }}>当前学校还没有节次数据</div>
+            <div style={{ fontSize: 13, marginBottom: 12 }}>
+              首次进入节次管理时，可以先生成一套默认节次模板，后续再按学校实际作息微调。
+            </div>
+            {isSchoolAdmin && (
+              <Button type="primary" loading={generatingDefaultPeriodTemplate} onClick={handleGenerateDefaultPeriodTemplate}>
+                一键生成默认节次模板
+              </Button>
+            )}
           </div>
         )}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <Space wrap>
+            <Button
+              onClick={() => {
+                setSelectedPeriod(null)
+                setEditingPeriod(null)
+                periodForm.resetFields()
+                periodForm.setFieldsValue({ sort_order: periods.length + 1 })
+              }}
+            >
+              新建空白节次
+            </Button>
+            <Button type="primary" disabled={!selectedPeriod} onClick={handleAddPeriodAfterSelected}>
+              新增节次
+            </Button>
+            <Button danger disabled={!selectedPeriod} onClick={handleDeleteSelectedPeriod}>
+              删除选中节次
+            </Button>
+          </Space>
+          <span style={{ fontSize: 12, color: '#64748b' }}>
+            {selectedPeriod ? <>当前选中：{selectedPeriod.name}</> : '当前未选中节次'}
+          </span>
+        </div>
         <Form form={periodForm} layout="vertical">
           <Form.Item name="name" label="节次名称" rules={[{ required: true, message: '请输入节次名称' }]}>
-            <Input disabled={!isCreatingPeriodMode} />
+            <Input />
           </Form.Item>
           {isCreatingPeriodMode && (
             <Form.Item name="sort_order" label="排序" initialValue={1} rules={[{ required: true, message: '请输入排序' }]}>
@@ -1044,7 +1150,7 @@ export default function Home() {
                 style={{
                   padding: '8px 12px',
                   marginBottom: 4,
-                  background: editingPeriod?.id === p.id ? '#e6f7ff' : '#fafafa',
+                  background: selectedPeriod?.id === p.id ? '#e6f7ff' : '#fafafa',
                   borderRadius: 4,
                   cursor: 'pointer',
                   display: 'flex',
