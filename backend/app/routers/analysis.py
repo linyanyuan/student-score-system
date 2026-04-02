@@ -592,6 +592,112 @@ def student_subject_comparison(
 
 # ── 班级分析 ──────────────────────────────────────────────────────────────────
 
+def _round_score(value: float | None) -> float | None:
+    return round(float(value), 2) if value is not None else None
+
+
+def _ordered_exam_subject_rows(db: Session, exam_id: int) -> list[tuple[int, str]]:
+    return (
+        db.query(Subject.id, Subject.name)
+        .join(Score, Score.subject_id == Subject.id)
+        .filter(Score.exam_id == exam_id)
+        .distinct()
+        .order_by(Subject.id.asc())
+        .all()
+    )
+
+
+@router.get("/student/{student_id}/score-comparison")
+def student_score_comparison(
+    student_id: int,
+    exam_id: int = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="瀛︾敓涓嶅瓨鍦?")
+    _check_student_permission(student, current_user, db)
+
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="鑰冭瘯涓嶅瓨鍦?")
+
+    cls = db.query(Class).filter(Class.id == student.class_id).first()
+    class_student_ids = [
+        row[0] for row in db.query(Student.id).filter(Student.class_id == student.class_id).all()
+    ]
+    grade_class_ids = (
+        [row[0] for row in db.query(Class.id).filter(Class.grade == cls.grade).all()]
+        if cls and cls.grade
+        else []
+    )
+    grade_student_ids = (
+        [row[0] for row in db.query(Student.id).filter(Student.class_id.in_(grade_class_ids)).all()]
+        if grade_class_ids
+        else []
+    )
+
+    result = [{
+        "dimension_name": "总分",
+        "student_score": db.query(TotalRank.total_score).filter(
+            TotalRank.student_id == student_id,
+            TotalRank.exam_id == exam_id,
+        ).scalar(),
+        "class_avg": _round_score(
+            db.query(func.avg(TotalRank.total_score)).filter(
+                TotalRank.exam_id == exam_id,
+                TotalRank.student_id.in_(class_student_ids),
+            ).scalar()
+        ),
+        "grade_avg": _round_score(
+            db.query(func.avg(TotalRank.total_score)).filter(
+                TotalRank.exam_id == exam_id,
+                TotalRank.student_id.in_(grade_student_ids),
+            ).scalar()
+        ) if grade_student_ids else None,
+        "highest_score": _round_score(
+            db.query(func.max(TotalRank.total_score)).filter(
+                TotalRank.exam_id == exam_id,
+                TotalRank.student_id.in_(grade_student_ids),
+            ).scalar()
+        ) if grade_student_ids else None,
+    }]
+
+    for subj_id, subj_name in _ordered_exam_subject_rows(db, exam_id):
+        result.append({
+            "dimension_name": subj_name,
+            "student_score": db.query(Score.score).filter(
+                Score.student_id == student_id,
+                Score.exam_id == exam_id,
+                Score.subject_id == subj_id,
+            ).scalar(),
+            "class_avg": _round_score(
+                db.query(func.avg(Score.score)).filter(
+                    Score.exam_id == exam_id,
+                    Score.subject_id == subj_id,
+                    Score.student_id.in_(class_student_ids),
+                ).scalar()
+            ),
+            "grade_avg": _round_score(
+                db.query(func.avg(Score.score)).filter(
+                    Score.exam_id == exam_id,
+                    Score.subject_id == subj_id,
+                    Score.student_id.in_(grade_student_ids),
+                ).scalar()
+            ) if grade_student_ids else None,
+            "highest_score": _round_score(
+                db.query(func.max(Score.score)).filter(
+                    Score.exam_id == exam_id,
+                    Score.subject_id == subj_id,
+                    Score.student_id.in_(grade_student_ids),
+                ).scalar()
+            ) if grade_student_ids else None,
+        })
+
+    return result
+
+
 @router.get("/classes/rank")
 def classes_rank(
     exam_id: int = Query(...),
@@ -620,12 +726,14 @@ def classes_rank(
         classes = [c for c in classes if c.id in accessible]
 
     result = []
+    class_student_ids_map: dict[int, list[int]] = {}
     for cls in classes:
         student_ids = [
             r[0] for r in db.query(Student.id).filter(Student.class_id == cls.id).all()
         ]
         if not student_ids:
             continue
+        class_student_ids_map[cls.id] = student_ids
 
         if subject_id:
             avg = db.query(func.avg(Score.score)).filter(
@@ -640,7 +748,39 @@ def classes_rank(
             ).scalar()
 
         if avg is not None:
-            result.append({"class_name": cls.name, "avg_score": round(float(avg), 2), "class_id": cls.id})
+            result.append({
+                "class_name": cls.name,
+                "avg_score": round(float(avg), 2),
+                "class_id": cls.id,
+                "grade": cls.grade,
+            })
+
+    grade_avg_by_grade: dict[str, float] = {}
+    for grade in {item["grade"] for item in result if item.get("grade")}:
+        grade_student_ids = [
+            student_id
+            for item in result
+            if item.get("grade") == grade
+            for student_id in class_student_ids_map.get(item["class_id"], [])
+        ]
+        if not grade_student_ids:
+            continue
+        if subject_id:
+            grade_avg = db.query(func.avg(Score.score)).filter(
+                Score.exam_id == exam_id,
+                Score.subject_id == subject_id,
+                Score.student_id.in_(grade_student_ids),
+            ).scalar()
+        else:
+            grade_avg = db.query(func.avg(TotalRank.total_score)).filter(
+                TotalRank.exam_id == exam_id,
+                TotalRank.student_id.in_(grade_student_ids),
+            ).scalar()
+        if grade_avg is not None:
+            grade_avg_by_grade[grade] = round(float(grade_avg), 2)
+
+    for item in result:
+        item["grade_avg"] = grade_avg_by_grade.get(item.get("grade"))
 
     result.sort(key=lambda x: x["avg_score"], reverse=True)
     for i, item in enumerate(result, 1):

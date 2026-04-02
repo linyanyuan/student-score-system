@@ -1,17 +1,22 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Row, Col, Card, Select, Spin, Empty, Typography } from 'antd'
-import { Line, Radar } from '@ant-design/charts'
+import { Bar, Line, Radar } from '@ant-design/charts'
 import { getStudents } from '../api/student'
 import { getSubjects } from '../api/subject'
 import { getExams } from '../api/exam'
 import { getClasses } from '../api/class'
 import { useAuth } from '../contexts/AuthContext'
-import { buildRadarSubjectPoints } from './studentAnalysisUtils'
 import {
-  getStudentTotalTrend,
-  getStudentSubjectTrend,
+  buildRadarSubjectPoints,
+  buildSubjectScoreComparisonLineSeries,
+  buildTotalScoreComparisonBars,
+} from './studentAnalysisUtils'
+import {
   getStudentRankTrend,
+  getStudentScoreComparison,
   getStudentSubjectComparison,
+  getStudentSubjectTrend,
+  getStudentTotalTrend,
 } from '../api/analysis'
 
 const { Text } = Typography
@@ -19,8 +24,8 @@ const { Text } = Typography
 const parseExamGrades = (gradeValue) => {
   if (!gradeValue) return []
   return String(gradeValue)
-    .split(/[，,、]/)
-    .map((g) => g.trim())
+    .split(/[，,、/]/)
+    .map((grade) => grade.trim())
     .filter(Boolean)
 }
 
@@ -40,8 +45,8 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
   const [subjectTrend, setSubjectTrend] = useState([])
   const [rankTrend, setRankTrend] = useState([])
   const [subjectComparison, setSubjectComparison] = useState([])
+  const [scoreComparison, setScoreComparison] = useState([])
 
-  // Load students, subjects, exams, classes on mount
   useEffect(() => {
     if (isStudentRole) {
       const boundStudentId = user?.student_id ?? null
@@ -52,55 +57,46 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
               id: boundStudentId,
               name: user?.student_name || user?.username || '当前学生',
               student_no: user?.student_no || '',
-              class_id: null,
+              class_id: user?.class_id ?? null,
             }]
           : []
       )
     } else {
       getStudents({ page: 1, page_size: 9999 })
-        .then((res) => {
-          setStudents(res.data?.items || [])
-        })
-        .catch(() => {
-          setStudents([])
-        })
+        .then((res) => setStudents(res.data?.items || []))
+        .catch(() => setStudents([]))
     }
-    getSubjects().then((res) => {
-      const list = res.data || []
-      setSubjects(list)
-      if (list.length > 0) setSubjectId(list[0].id)
-    }).catch(() => setSubjects([]))
-    getExams().then((res) => {
-      setExams(res.data || [])
-    }).catch(() => setExams([]))
-    getClasses().then((res) => {
-      setClasses(res.data || [])
-    }).catch(() => setClasses([]))
-  }, [isStudentRole, user?.student_id, user?.student_name, user?.student_no, user?.username])
 
-  // Sync initialStudentId from parent
+    getSubjects()
+      .then((res) => {
+        const list = res.data || []
+        setSubjects(list)
+        if (list.length > 0) setSubjectId(list[0].id)
+      })
+      .catch(() => setSubjects([]))
+
+    getExams().then((res) => setExams(res.data || [])).catch(() => setExams([]))
+    getClasses().then((res) => setClasses(res.data || [])).catch(() => setClasses([]))
+  }, [isStudentRole, user?.class_id, user?.student_id, user?.student_name, user?.student_no, user?.username])
+
   useEffect(() => {
     if (!isStudentRole && initialStudentId) setStudentId(initialStudentId)
-  }, [isStudentRole, initialStudentId])
+  }, [initialStudentId, isStudentRole])
 
-  // Sync initialExamId from parent
   useEffect(() => {
     if (initialExamId) setSelectedExamId(initialExamId)
   }, [initialExamId])
 
-  // Get student's grade and filter exams accordingly
-  const selectedStudent = students.find((s) => s.id === studentId)
-  const studentClass = selectedStudent ? classes.find((c) => c.id === selectedStudent.class_id) : null
+  const selectedStudent = students.find((student) => student.id === studentId)
+  const studentClass = selectedStudent ? classes.find((item) => item.id === selectedStudent.class_id) : null
   const studentGrade = studentClass?.grade
 
-  // Filter exams by student's grade, sorted by date descending
   const filteredExams = studentGrade
     ? [...exams]
-        .filter((e) => parseExamGrades(e.grade).includes(studentGrade))
+        .filter((exam) => parseExamGrades(exam.grade).includes(studentGrade))
         .sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
     : [...exams].sort((a, b) => new Date(b.exam_date) - new Date(a.exam_date))
 
-  // Keep selected exam in sync with current student's available exams
   useEffect(() => {
     if (!studentId) {
       setSelectedExamId(null)
@@ -110,23 +106,20 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
       setSelectedExamId(null)
       return
     }
-    if (!selectedExamId || !filteredExams.some((e) => e.id === selectedExamId)) {
+    if (!selectedExamId || !filteredExams.some((exam) => exam.id === selectedExamId)) {
       setSelectedExamId(filteredExams[0].id)
     }
-  }, [studentId, filteredExams, selectedExamId])
+  }, [filteredExams, selectedExamId, studentId])
 
-  // Fetch analysis data when studentId changes
   useEffect(() => {
     if (!studentId || typeof studentId !== 'number') {
       setTotalTrend([])
       setRankTrend([])
       return
     }
+
     setLoading(true)
-    Promise.all([
-      getStudentTotalTrend(studentId),
-      getStudentRankTrend(studentId),
-    ])
+    Promise.all([getStudentTotalTrend(studentId), getStudentRankTrend(studentId)])
       .then(([totalRes, rankRes]) => {
         setTotalTrend(totalRes.data || [])
         setRankTrend(rankRes.data || [])
@@ -138,50 +131,50 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
       .finally(() => setLoading(false))
   }, [studentId])
 
-  // Fetch subject comparison when studentId or selectedExamId changes
   useEffect(() => {
     if (!studentId || typeof studentId !== 'number' || !selectedExamId) {
       setSubjectComparison([])
+      setScoreComparison([])
       return
     }
-    getStudentSubjectComparison(studentId, selectedExamId)
-      .then((res) => {
-        setSubjectComparison(res.data || [])
+
+    Promise.all([
+      getStudentSubjectComparison(studentId, selectedExamId),
+      getStudentScoreComparison(studentId, selectedExamId),
+    ])
+      .then(([subjectRes, scoreRes]) => {
+        setSubjectComparison(subjectRes.data || [])
+        setScoreComparison(scoreRes.data || [])
       })
       .catch(() => {
         setSubjectComparison([])
+        setScoreComparison([])
       })
-  }, [studentId, selectedExamId])
+  }, [selectedExamId, studentId])
 
-  // Fetch subject trend when studentId or subjectId changes
   useEffect(() => {
     if (!studentId || typeof studentId !== 'number' || !subjectId) {
       setSubjectTrend([])
       return
     }
+
     getStudentSubjectTrend(studentId, subjectId)
-      .then((res) => {
-        setSubjectTrend(res.data || [])
-      })
-      .catch(() => {
-        setSubjectTrend([])
-      })
+      .then((res) => setSubjectTrend(res.data || []))
+      .catch(() => setSubjectTrend([]))
   }, [studentId, subjectId])
-  // Chart configs
+
   const totalTrendConfig = {
     data: totalTrend,
     xField: 'exam_name',
     yField: 'total_score',
     point: { size: 4, shape: 'circle' },
-    label: { dy:-10,style: { fill: '#f50404' ,fontWeight: 600,} },
+    label: { dy: -10, style: { fill: '#f50404', fontWeight: 600 } },
     smooth: true,
     tooltip: {
-      title: (d) => d.exam_name,
+      title: (datum) => datum.exam_name,
       items: [{ field: 'total_score', name: '总分' }],
     },
-    style: {
-      lineWidth: 2,
-    },
+    style: { lineWidth: 2 },
   }
 
   const subjectTrendConfig = {
@@ -189,58 +182,45 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
     xField: 'exam_name',
     yField: 'score',
     point: { size: 4, shape: 'circle' },
-    label: { dy:-10,style: { fill: '#f50404' ,fontWeight: 600,} },
+    label: { dy: -10, style: { fill: '#f50404', fontWeight: 600 } },
     smooth: true,
     tooltip: {
-      title: (d) => d.exam_name,
+      title: (datum) => datum.exam_name,
       items: [{ field: 'score', name: '分数' }],
     },
-    style: {
-      lineWidth: 2,
-    },
+    style: { lineWidth: 2 },
   }
 
-  // Rank trend: two lines (班级排名 + 年级排名)
-  const rankTrendData = rankTrend.flatMap((d) => [
-    { exam_name: d.exam_name, rank: d.rank_class, type: '班级排名' },
-    { exam_name: d.exam_name, rank: d.rank_grade, type: '年级排名' },
+  const rankTrendData = rankTrend.flatMap((row) => [
+    { exam_name: row.exam_name, rank: row.rank_class, type: '班级排名' },
+    { exam_name: row.exam_name, rank: row.rank_grade, type: '年级排名' },
   ])
+
   const rankTrendConfig = {
     data: rankTrendData,
     xField: 'exam_name',
     yField: 'rank',
     seriesField: 'type',
     colorField: 'type',
-    scale: {
-      y: { nice: true, range: [0,1] },
-    },
+    scale: { y: { nice: true, range: [0, 1] } },
     point: { size: 4 },
     smooth: true,
     legend: { position: 'top' },
-    label: { dy:-10,style: { fill: '#f50404' ,fontWeight: 600,} },
+    label: { dy: -10, style: { fill: '#f50404', fontWeight: 600 } },
     tooltip: {
-      title: (d) => d.exam_name,
-      items: [{ field: 'rank', name: (d) => d.type }],
+      title: (datum) => datum.exam_name,
+      items: [{ field: 'rank', name: (datum) => datum.type }],
     },
-    style: {
-      lineWidth: 2,
-    },
+    style: { lineWidth: 2 },
   }
 
-  // Radar: only student polygon, each axis top (100) represents full score of that subject
   const radarData = buildRadarSubjectPoints(subjectComparison)
   const radarConfig = {
     data: radarData,
     xField: 'subject',
     yField: 'score_rate',
-    axis: {
-      y: {
-        nice: false,
-      },
-    },
-     area: {
-      style: { fillOpacity: 0.3, fill: '#1890ff' },
-    },
+    axis: { y: { nice: false } },
+    area: { style: { fillOpacity: 0.3, fill: '#1890ff' } },
     scale: {
       y: {
         min: 0,
@@ -250,7 +230,7 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
       },
     },
     tooltip: {
-      title: (d) => d.subject,
+      title: (datum) => datum.subject,
       items: [
         { field: 'student_score', name: '分数' },
         { field: 'full_score', name: '满分' },
@@ -260,10 +240,53 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
     legend: false,
   }
 
-  const studentOptions = students.map((s) => ({
-    value: s.id,
-    label: s.name,
+  const studentOptions = students.map((student) => ({
+    value: student.id,
+    label: student.name,
   }))
+
+  const totalScoreBarData = buildTotalScoreComparisonBars(scoreComparison)
+  const totalScoreBarConfig = {
+    data: totalScoreBarData,
+    xField: 'label',
+    yField: 'score',
+    colorField: 'label',
+    legend: false,
+    labels: [
+      {
+        position: 'right',
+        text: (datum) => datum?.score?.toFixed?.(2) ?? '-',
+        style: { fill: '#b42318', fontWeight: 700, dx: 16 },
+      },
+    ],
+    axis: { y: { labelAutoRotate: false } },
+    tooltip: {
+      title: (datum) => datum.label,
+      items: [{ field: 'score', name: '分数', valueFormatter: (value) => Number(value).toFixed(2) }],
+    },
+    scale: {
+      color: {
+        range: ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444'],
+      },
+    },
+  }
+
+  const subjectScoreLineData = buildSubjectScoreComparisonLineSeries(scoreComparison)
+  const subjectScoreLineConfig = {
+    data: subjectScoreLineData,
+    xField: 'dimension',
+    yField: 'score',
+    seriesField: 'series',
+    colorField: 'series',
+    point: { size: 4, shape: 'circle' },
+    smooth: true,
+    legend: { position: 'top' },
+    tooltip: {
+      title: (datum) => datum.dimension,
+      items: [{ field: 'score', name: (datum) => datum.series }],
+    },
+    style: { lineWidth: 2 },
+  }
 
   return (
     <div>
@@ -278,9 +301,7 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
             value={studentId}
             onChange={setStudentId}
             options={studentOptions}
-            filterOption={(input, option) =>
-              (option?.label || '').toLowerCase().includes(input.toLowerCase())
-            }
+            filterOption={(input, option) => (option?.label || '').toLowerCase().includes(input.toLowerCase())}
           />
         </Col>
       </Row>
@@ -302,17 +323,17 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
 
             <Col xs={24} lg={12}>
               <Card
-                title="单科分数历次趋势"  
+                title="单科分数历次趋势"
                 size="small"
-                extra={
+                extra={(
                   <Select
                     size="small"
                     style={{ width: 100 }}
                     value={subjectId}
                     onChange={setSubjectId}
-                    options={subjects.map((s) => ({ value: s.id, label: s.name }))}
+                    options={subjects.map((subject) => ({ value: subject.id, label: subject.name }))}
                   />
-                }
+                )}
               >
                 {subjectTrend.length > 0 ? (
                   <Line {...subjectTrendConfig} height={260} />
@@ -334,24 +355,44 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
 
             <Col xs={24} lg={12}>
               <Card
-                title="各科成绩对比（雷达图，顶点=满分）"
+                title="各科成绩对比（雷达图，顶点为满分）"
                 size="small"
-                extra={
+                extra={(
                   <Select
                     size="small"
                     style={{ width: 180 }}
                     placeholder="选择考试"
                     value={selectedExamId}
                     onChange={setSelectedExamId}
-                    options={filteredExams.map((e) => ({
-                      value: e.id,
-                      label: `${e.name} (${e.exam_date})`,
+                    options={filteredExams.map((exam) => ({
+                      value: exam.id,
+                      label: `${exam.name} (${exam.exam_date})`,
                     }))}
                   />
-                }
+                )}
               >
                 {subjectComparison.length > 0 ? (
                   <Radar {...radarConfig} height={260} />
+                ) : (
+                  <Empty description="请先选择考试" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                )}
+              </Card>
+            </Col>
+
+            <Col xs={24} lg={8}>
+              <Card title="总分对比" size="small">
+                {totalScoreBarData.length > 0 ? (
+                  <Bar {...totalScoreBarConfig} height={320} />
+                ) : (
+                  <Empty description="请先选择考试" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                )}
+              </Card>
+            </Col>
+
+            <Col xs={24} lg={16}>
+              <Card title="各科成绩对比" size="small">
+                {subjectScoreLineData.length > 0 ? (
+                  <Line {...subjectScoreLineConfig} height={320} />
                 ) : (
                   <Empty description="请先选择考试" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 )}
