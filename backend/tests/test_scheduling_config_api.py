@@ -40,7 +40,15 @@ class SchedulingConfigApiTests(unittest.TestCase):
 
         self.class_obj = Class(name='1班', grade='八年级', school_id=self.school.id)
         self.subject = Subject(name='数学', code='MATH', grades='八年级', school_id=self.school.id)
-        self.period = SchedulePeriod(name='第1节', start_time='08:00', end_time='08:45', sort_order=1, is_active=True, include_in_auto_schedule=True)
+        self.period = SchedulePeriod(
+            name='第1节',
+            start_time='08:00',
+            end_time='08:45',
+            school_id=self.school.id,
+            sort_order=1,
+            is_active=True,
+            include_in_auto_schedule=True,
+        )
         self.db.add_all([self.class_obj, self.subject, self.period])
         self.db.commit()
         self.db.refresh(self.class_obj)

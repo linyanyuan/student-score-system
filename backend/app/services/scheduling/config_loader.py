@@ -62,7 +62,11 @@ def load_scheduling_raw_config(db: Session, school_id: int, grade: str) -> dict[
 
     periods = (
         db.query(SchedulePeriod)
-        .filter(SchedulePeriod.is_active == True, SchedulePeriod.include_in_auto_schedule == True)
+        .filter(
+            SchedulePeriod.school_id == school_id,
+            SchedulePeriod.is_active == True,
+            SchedulePeriod.include_in_auto_schedule == True,
+        )
         .order_by(SchedulePeriod.sort_order, SchedulePeriod.id)
         .all()
     )
