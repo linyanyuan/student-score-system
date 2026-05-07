@@ -269,7 +269,7 @@ export default function ExamManage() {
       render: (_, record) => (
         <Space>
           <Button size="small" onClick={() => handleOpenEdit(record)}>编辑</Button>
-          <Popconfirm title="确认删除？" onConfirm={() => handleDelete(record.id)}>
+          <Popconfirm title="确认删除？该考试已录入的成绩也会一并删除。" onConfirm={() => handleDelete(record.id)}>
             <Button size="small" danger>删除</Button>
           </Popconfirm>
         </Space>
