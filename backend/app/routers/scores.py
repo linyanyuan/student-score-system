@@ -125,6 +125,16 @@ def _expand_class_candidates(normalized_class_name: str) -> list[str]:
     return list(candidates)
 
 
+def _extract_class_number(normalized_class_name: str) -> str | None:
+    text = normalized_class_name.replace("班级", "班")
+    match = re.search(r"\(?(\d{1,2})\)?班$", text)
+    if not match:
+        match = re.search(r"\(?(\d{1,2})\)?$", text)
+    if not match:
+        return None
+    return str(int(match.group(1)))
+
+
 def _resolve_class_ids_by_name(excel_class_name: str, class_name_map: dict[int, str]) -> list[int]:
     normalized = _normalize_class_text(excel_class_name)
     candidates = _expand_class_candidates(normalized)
@@ -146,7 +156,21 @@ def _resolve_class_ids_by_name(excel_class_name: str, class_name_map: dict[int, 
         if any(norm_name.endswith(candidate) or candidate.endswith(norm_name) for candidate in candidates)
     ]
     # Keep order stable while deduplicating.
-    return list(dict.fromkeys(suffix_match))
+    if suffix_match:
+        return list(dict.fromkeys(suffix_match))
+
+    candidate_numbers = {
+        number
+        for candidate in candidates
+        for number in [_extract_class_number(candidate)]
+        if number is not None
+    }
+    number_match = [
+        cid
+        for cid, norm_name in normalized_name_map.items()
+        if _extract_class_number(norm_name) in candidate_numbers
+    ]
+    return list(dict.fromkeys(number_match))
 
 
 def _should_use_explicit_ranks(
@@ -1038,6 +1062,7 @@ def import_scores(
 
             student = None
             student_no = None
+            pending_student = None
 
             student_no_value = (
                 row[student_no_col]
@@ -1050,9 +1075,48 @@ def import_scores(
             if has_student_no:
                 student_no = student_no_text
                 if student_no not in student_map:
-                    errors.append({"row": idx, "error": f"学号 '{student_no}' 不存在"})
-                    continue
-                student = student_map[student_no]
+                    if class_col is None or name_col is None:
+                        errors.append({"row": idx, "error": f"学号 '{student_no}' 不存在，且缺少班级或姓名，无法自动创建学生"})
+                        continue
+
+                    class_name = (
+                        _normalize_cell_text(row[class_col])
+                        if class_col < len(row) and row[class_col] is not None
+                        else ""
+                    )
+                    student_name = (
+                        _normalize_cell_text(row[name_col])
+                        if name_col < len(row) and row[name_col] is not None
+                        else ""
+                    )
+
+                    if class_name and student_name and not _looks_like_class_value(class_name) and _looks_like_class_value(student_name):
+                        class_name, student_name = student_name, class_name
+
+                    if not class_name or not student_name:
+                        errors.append({"row": idx, "error": f"学号 '{student_no}' 不存在，且缺少班级或姓名，无法自动创建学生"})
+                        continue
+
+                    class_ids = _resolve_class_ids_by_name(class_name, grade_class_name_map)
+                    if not class_ids:
+                        errors.append({"row": idx, "error": f"班级 '{class_name}' 在年级 '{selected_grade}' 中不存在"})
+                        continue
+                    if len(class_ids) > 1:
+                        errors.append({"row": idx, "error": f"班级 '{class_name}' 匹配到多个班级，请先维护学生档案"})
+                        continue
+                    if accessible is not None and class_ids[0] not in accessible:
+                        errors.append({"row": idx, "error": f"学号 '{student_no}' 无权导入"})
+                        continue
+
+                    pending_student = Student(
+                        student_no=student_no,
+                        name=student_name,
+                        gender="U",
+                        class_id=class_ids[0],
+                    )
+                    student = pending_student
+                else:
+                    student = student_map[student_no]
             else:
                 if class_col is None or name_col is None:
                     errors.append({"row": idx, "error": "缺少学号且无法通过班级+姓名识别"})
@@ -1123,6 +1187,13 @@ def import_scores(
             if missing_required:
                 errors.append({"row": idx, "error": f"必填科目缺少成绩: {', '.join(missing_required)}"})
                 continue
+
+            if pending_student is not None:
+                db.add(pending_student)
+                db.flush()
+                student_map[student_no] = pending_student
+                key = (pending_student.class_id, _normalize_header_text(pending_student.name))
+                students_by_class_and_name.setdefault(key, []).append(pending_student)
 
             for col_idx, subject in subject_cols:
                 if col_idx < len(row) and row[col_idx] is not None and str(row[col_idx]).strip() != "":

@@ -13,7 +13,7 @@ class Student(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     student_no: Mapped[str] = mapped_column(String(20), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(50), nullable=False)
-    gender: Mapped[str] = mapped_column(String(1), nullable=False)  # M/F
+    gender: Mapped[str] = mapped_column(String(1), nullable=False)  # M/F/U
     birth_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     class_id: Mapped[int] = mapped_column(Integer, ForeignKey("classes.id"), nullable=False)
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)

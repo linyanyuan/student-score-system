@@ -63,7 +63,7 @@ def download_template(
     wb = Workbook()
     ws = wb.active
     ws.title = "学生导入模板"
-    headers = ["学号", "班级名称", "姓名", "性别(男/女)", "出生日期(YYYY-MM-DD)", "联系方式"]
+    headers = ["学号", "班级名称", "姓名", "性别(男/女/未知)", "出生日期(YYYY-MM-DD)", "联系方式"]
     custom_fields = query.order_by(CustomFieldDefinition.sort_order).all()
     for cf in custom_fields:
         headers.append(cf.field_name)
@@ -109,7 +109,7 @@ def export_students(
     ws.append(headers)
 
     for s in students:
-        gender_display = "男" if s.gender == "M" else "女"
+        gender_display = {"M": "男", "F": "女", "U": "未知"}.get(s.gender, "未知")
         row = [
             s.student_no,
             classes.get(s.class_id, ""),
@@ -187,10 +187,10 @@ def import_students(
                 errors.append({"row": idx, "error": "姓名不能为空"})
                 continue
 
-            gender_map = {"男": "M", "女": "F", "M": "M", "F": "F"}
+            gender_map = {"男": "M", "女": "F", "未知": "U", "M": "M", "F": "F", "U": "U"}
             gender = gender_map.get(gender_raw)
             if not gender:
-                errors.append({"row": idx, "error": "性别必须为 男 或 女"})
+                errors.append({"row": idx, "error": "性别必须为 男、女 或 未知"})
                 continue
 
             if class_id is not None:

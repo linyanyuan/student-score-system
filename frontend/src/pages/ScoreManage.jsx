@@ -1,5 +1,6 @@
 ﻿import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Alert,
   Button,
   Form,
   Input,
@@ -108,6 +109,9 @@ export default function ScoreManage() {
   const canViewClassAnalysis = user?.role !== 'student'
   const selectedExamInfo = exams.find((exam) => exam.id === selectedExam)
   const importGradeOptions = parseExamGrades(selectedExamInfo?.grade)
+  const hasMissingClassImportErrors = importResult?.errors?.some((item) =>
+    String(item?.error || '').includes('在年级') && String(item?.error || '').includes('中不存在')
+  )
 
   const fetchBaseOptions = async () => {
     try {
@@ -613,6 +617,15 @@ export default function ScoreManage() {
             <p>
               失败行数：<Tag color="red">{importResult.error_count}</Tag> 行
             </p>
+            {hasMissingClassImportErrors && (
+              <Alert
+                type="warning"
+                showIcon
+                message="存在未创建的班级"
+                description="请先在班级管理中创建对应年级的班级，再重新导入这些成绩行。"
+                style={{ marginBottom: 12 }}
+              />
+            )}
             {importResult.errors?.length > 0 && (
               <Table
                 size="small"

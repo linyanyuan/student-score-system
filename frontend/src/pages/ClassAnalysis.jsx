@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Row, Col, Card, Select, Table, Tag, Spin, Empty, Typography, Tooltip, Divider } from 'antd'
+import { Row, Col, Card, Select, Table, Tag, Spin, Empty, Typography, Tooltip } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
-import { Bar, Column } from '@ant-design/charts'
+import { Column } from '@ant-design/charts'
 import { getClasses } from '../api/class'
 import { getSubjects } from '../api/subject'
 import { buildRankChartRowsWithGradeAverage } from './studentAnalysisUtils'
@@ -15,20 +15,42 @@ import {
 
 const { Text } = Typography
 
+function buildDistributionSegments(data) {
+  const excellentCount = Number(data?.excellent_count || 0)
+  const goodCount = Number(data?.good_count || 0)
+  const passCount = Number(data?.pass_count || 0)
+  const failCount = Number(data?.fail_count ?? 0)
+  const totalCount = Number(data?.total_count || 0)
+  return [
+    { type: '优秀段', count: excellentCount },
+    { type: '良好段', count: Math.max(goodCount - excellentCount, 0) },
+    { type: '及格段', count: Math.max(passCount - goodCount, 0) },
+    { type: '未及格', count: failCount || Math.max(totalCount - passCount, 0) },
+  ]
+}
+
 function DistributionChart({ data }) {
-  if (!data || (data.excellent_rate === 0 && data.good_rate === 0 && data.pass_rate === 0 && data.fail_rate === 0)) {
+  if (!data || Number(data.total_count || 0) <= 0) {
     return <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
   }
 
-  const chartData = [
-    { type: '优秀(≥90%)', value: data.excellent_rate || 0, count: data.excellent_count || 0 },
-    { type: '良好(80-89%)', value: data.good_rate || 0, count: data.good_count || 0 },
-    { type: '合格(60-79%)', value: data.pass_rate || 0, count: data.pass_count || 0 },
-    { type: '不合格(<60%)', value: data.fail_rate || 0, count: data.fail_count || 0 },
+  const rateChartData = [
+    { type: '优秀率(≥80%)', rateName: '优秀率', value: data.excellent_rate || 0, count: data.excellent_count || 0 },
+    { type: '良好率(≥70%)', rateName: '良好率', value: data.good_rate || 0, count: data.good_count || 0 },
+    { type: '及格率(≥60%)', rateName: '及格率', value: data.pass_rate || 0, count: data.pass_count || 0 },
+    { type: '低分率(≤30%)', rateName: '低分率', value: data.low_rate || 0, count: data.low_count || 0 },
   ]
+  const segmentData = buildDistributionSegments(data)
+  const totalCount = Number(data.total_count || 0)
+  const segmentColors = {
+    优秀段: '#52c41a',
+    良好段: '#1890ff',
+    及格段: '#faad14',
+    未及格: '#ff4d4f',
+  }
 
-  const config = {
-    data: chartData,
+  const columnConfig = {
+    data: rateChartData,
     xField: 'type',
     yField: 'value',
     axis: { y: { labelFormatter: (value) => `${(value * 100).toFixed(0)}%` } },
@@ -42,71 +64,98 @@ function DistributionChart({ data }) {
         dy: -25,
       },
       text: (datum) => {
-        const count = datum?.count
-        return count !== undefined && count !== null ? `${count}人` : '-'
+        const value = Number(datum?.value ?? 0)
+        return `${(value * 100).toFixed(2)}%`
       },
     },
     scale: { color: { range: ['#52c41a', '#1890ff', '#faad14', '#ff4d4f'] } },
     colorField: 'type',
     tooltip: {
       title: (datum) => datum?.type || '-',
-      items: [{ field: 'count', name: '人数', valueFormatter: (value) => `${value}人` }],
-    },
-  }
-
-  return <Column {...config} height={220} />
-}
-
-function buildBarRankConfig(data) {
-  return {
-    data,
-    xField: 'class_name',
-    yField: 'avg_score',
-    colorField: 'class_name',
-    legend: false,
-    scale: {
-      color: {
-        range: ['#4f46e5', '#0891b2', '#16a34a', '#dc2626', '#7c3aed', '#ea580c', '#2563eb', '#ca8a04'],
-      },
-    },
-    style: {
-      radiusTopLeft: 6,
-      radiusBottomLeft: 6,
-      fillOpacity: (datum) => (datum?.item_type === 'grade_avg' ? 1 : 0.88),
-      lineWidth: (datum) => (datum?.item_type === 'grade_avg' ? 3 : 1),
-      stroke: (datum) => (datum?.item_type === 'grade_avg' ? '#b45309' : '#ffffff'),
-    },
-    labels: [
-      {
-        position: 'right',
-        text: (datum) => {
-          const prefix = datum?.item_type === 'grade_avg' ? '年级均分 ' : ''
-          return `${prefix}${datum?.avg_score?.toFixed(2) ?? '-'}`
-        },
-        style: {
-          fill: (datum) => (datum?.item_type === 'grade_avg' ? '#b45309' : '#1f2937'),
-          fontWeight: (datum) => (datum?.item_type === 'grade_avg' ? 800 : 600),
-          dx: 16,
-        },
-      },
-    ],
-    axis: { y: { labelAutoRotate: false } },
-    tooltip: {
-      title: (datum) => datum.class_name,
       items: [
-        {
-          field: 'avg_score',
-          name: '图中分值',
-          valueFormatter: (value) => Number(value).toFixed(2),
-        },
-        {
-          field: 'grade_avg',
-          name: '所属年级均分',
-          valueFormatter: (value) => Number(value).toFixed(2),
-        },
+        (datum) => ({
+          name: datum?.rateName || '率',
+          value: `${(Number(datum?.value || 0) * 100).toFixed(2)}%`,
+        }),
+        { field: 'count', name: '人数', valueFormatter: (value) => `${value}人` },
       ],
     },
   }
+
+  return (
+    <div className="class-analysis-distribution-grid">
+      <div className="class-analysis-distribution-pane">
+        <div className="class-analysis-chart-subtitle">四率柱状图</div>
+        <span className="class-analysis-rate-label" aria-hidden="true" />
+        <Column {...columnConfig} height={240} />
+      </div>
+      <div className="class-analysis-distribution-pane">
+        <div className="class-analysis-chart-subtitle">人数占比</div>
+        <div className="class-analysis-segment-bar" aria-label="人数占比">
+          {segmentData.map((item) => {
+            const percent = totalCount > 0 ? item.count / totalCount : 0
+            return (
+              <div
+                className="class-analysis-segment-bar-part"
+                key={item.type}
+                style={{ width: `${percent * 100}%`, background: segmentColors[item.type] }}
+                title={`${item.type} ${item.count}人 ${(percent * 100).toFixed(2)}%`}
+              />
+            )
+          })}
+        </div>
+        <div className="class-analysis-segment-cards">
+          {segmentData.map((item) => {
+            const percent = totalCount > 0 ? item.count / totalCount : 0
+            return (
+              <div className="class-analysis-segment-card" key={item.type}>
+                <span className="class-analysis-segment-dot" style={{ background: segmentColors[item.type] }} />
+                <span className="class-analysis-segment-name">{item.type}</span>
+                <strong>{item.count}人</strong>
+                <small>{(percent * 100).toFixed(2)}%</small>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RankListChart({ data }) {
+  const maxScore = Math.max(...data.map((item) => Number(item?.avg_score || 0)), 1)
+  let classRank = 0
+
+  return (
+    <div className="class-analysis-rank-chart">
+      {data.map((item) => {
+        const score = Number(item?.avg_score || 0)
+        const isGradeAverage = item?.item_type === 'grade_avg'
+        const width = Math.max((score / maxScore) * 100, 4)
+        if (!isGradeAverage) classRank += 1
+
+        return (
+          <div
+            className={`class-analysis-rank-row${isGradeAverage ? ' is-grade-average' : ''}`}
+            key={`${item?.class_name}-${item?.item_type || 'class'}`}
+            title={`${item?.class_name || '-'} ${isGradeAverage ? '年级均分' : '平均分'} ${score.toFixed(2)}`}
+          >
+            <div className="class-analysis-rank-meta">
+              <span className="class-analysis-rank-index">{isGradeAverage ? '均' : classRank}</span>
+              <span className="class-analysis-rank-name">{item?.class_name || '-'}</span>
+            </div>
+            <div className="class-analysis-rank-track" aria-hidden="true">
+              <span className="class-analysis-rank-fill" style={{ width: `${width}%` }} />
+            </div>
+            <div className="class-analysis-rank-value">
+              {isGradeAverage && <span>年级均分</span>}
+              <strong>{score.toFixed(2)}</strong>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 export default function ClassAnalysis({ examId }) {
@@ -199,9 +248,6 @@ export default function ClassAnalysis({ examId }) {
       .finally(() => setLoading(false))
   }, [classId, examId])
 
-  const subjectRankConfig = buildBarRankConfig(subjectRankData)
-  const totalRankConfig = buildBarRankConfig(totalRankData)
-
   const allSubjectNames = bottomStudents.length > 0
     ? Object.keys(bottomStudents[0].subjects || {})
     : biasedStudents.length > 0
@@ -274,6 +320,13 @@ export default function ClassAnalysis({ examId }) {
       render: (value) => Number(value ?? 0).toFixed(2),
     },
     {
+      title: '低分率得分',
+      dataIndex: 'low_rate_score',
+      key: 'low_rate_score',
+      width: 120,
+      render: (value) => Number(value ?? 0).toFixed(2),
+    },
+    {
       title: '平均分',
       dataIndex: 'avg_score',
       key: 'avg_score',
@@ -301,28 +354,15 @@ export default function ClassAnalysis({ examId }) {
     : distribution?.subjects?.[selectedSubjectDist]
 
   return (
-    <div>
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col>
-          <Text>选择班级（深度分析）：</Text>
-          <Select
-            allowClear
-            placeholder="不选则仅显示排名"
-            style={{ width: 180 }}
-            value={classId}
-            onChange={setClassId}
-            options={classes.map((item) => ({ value: item.id, label: item.name }))}
-          />
-        </Col>
-      </Row>
-
+    <div className="class-analysis-page">
       {!examId ? (
         <Empty description="请先在成绩列表中选择考试" />
       ) : (
         <>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
+          <Row gutter={16} className="class-analysis-rank-grid">
             <Col xs={24} lg={12}>
               <Card
+                className="class-analysis-panel-card class-analysis-chart-card"
                 title="科目平均分排名"
                 size="small"
                 extra={(
@@ -337,7 +377,7 @@ export default function ClassAnalysis({ examId }) {
                 )}
               >
                 {selectedRankSubjectId && subjectRankData.length > 0 ? (
-                  <Bar {...subjectRankConfig} height={300} />
+                  <RankListChart data={subjectRankData} />
                 ) : (
                   <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 )}
@@ -345,9 +385,9 @@ export default function ClassAnalysis({ examId }) {
             </Col>
 
             <Col xs={24} lg={12}>
-              <Card title="班级平均分排名" size="small">
+              <Card className="class-analysis-panel-card class-analysis-chart-card" title="班级平均分排名" size="small">
                 {totalRankData.length > 0 ? (
-                  <Bar {...totalRankConfig} height={300} />
+                  <RankListChart data={totalRankData} />
                 ) : (
                   <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                 )}
@@ -358,7 +398,8 @@ export default function ClassAnalysis({ examId }) {
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
             <Col xs={24}>
               <Card
-                title="三率一分排名"
+                className="class-analysis-panel-card class-analysis-table-card"
+                title="四率一分排名"
                 size="small"
                 extra={(
                   <Select
@@ -384,18 +425,31 @@ export default function ClassAnalysis({ examId }) {
             </Col>
           </Row>
 
+          <div className="class-analysis-deep-pivot">
+            <div className="class-analysis-deep-copy">
+              <span className="class-analysis-deep-kicker">班级深度分析</span>
+              <Text className="class-analysis-deep-title">以下为所选班级的深度分析</Text>
+            </div>
+            <div className="class-analysis-deep-control">
+              <Text className="class-analysis-picker-label">选择班级</Text>
+              <Select
+                allowClear
+                placeholder="不选则仅显示排名"
+                className="class-analysis-picker"
+                value={classId}
+                onChange={setClassId}
+                options={classes.map((item) => ({ value: item.id, label: item.name }))}
+              />
+            </div>
+          </div>
+
           {classId && (
             <>
-              <Divider orientation="left" style={{ margin: '8px 0 16px' }}>
-                <Text type="secondary" style={{ fontSize: 16, fontWeight: 600 }}>
-                  以下为所选班级的深度分析
-                </Text>
-              </Divider>
-
               <Spin spinning={loading}>
                 <Row gutter={[16, 16]}>
                   <Col xs={24}>
                     <Card
+                      className="class-analysis-panel-card class-analysis-chart-card"
                       title="成绩分布"
                       size="small"
                       extra={(
@@ -414,6 +468,7 @@ export default function ClassAnalysis({ examId }) {
 
                   <Col xs={24}>
                     <Card
+                      className="class-analysis-panel-card class-analysis-table-card"
                       title={(
                         <span>
                           偏科生分析{' '}
@@ -437,7 +492,7 @@ export default function ClassAnalysis({ examId }) {
                   </Col>
 
                   <Col xs={24}>
-                    <Card title="后进生分析（总分排名靠后）" size="small">
+                    <Card className="class-analysis-panel-card class-analysis-table-card" title="后进生分析（总分排名靠后）" size="small">
                       <Table
                         dataSource={bottomStudents}
                         columns={bottomColumns}
@@ -452,6 +507,11 @@ export default function ClassAnalysis({ examId }) {
                 </Row>
               </Spin>
             </>
+          )}
+          {!classId && (
+            <div className="class-analysis-empty-prompt">
+              <Empty description="请选择班级查看深度分析" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            </div>
           )}
         </>
       )}

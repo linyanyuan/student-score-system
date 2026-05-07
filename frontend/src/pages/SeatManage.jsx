@@ -388,10 +388,11 @@ function DraggableStudent({ student, type, position }) {
     data: { type, student, position }
   })
 
-  const isMale = student.gender === 'M'
-  const colors = isMale
+  const colors = student.gender === 'M'
     ? { bg: '#e6f4ff', border: '#91caff', text: '#1677ff' }
-    : { bg: '#fff0f6', border: '#ffadd2', text: '#eb2f96' }
+    : student.gender === 'F'
+      ? { bg: '#fff0f6', border: '#ffadd2', text: '#eb2f96' }
+      : { bg: '#f6ffed', border: '#b7eb8f', text: '#389e0d' }
 
   return (
     <div
@@ -455,11 +456,12 @@ function SeatGrid({ layoutConfig, seatData, view, getStudentById }) {
 function SeatCell({ position, student }) {
   const { setNodeRef, isOver } = useDroppable({ id: `seat-${position}`, data: { type: 'seat', position } })
 
-  const isMale = student?.gender === 'M'
   const colors = student
-    ? isMale
+    ? student.gender === 'M'
       ? { bg: '#e6f4ff', border: '#91caff' }
-      : { bg: '#fff0f6', border: '#ffadd2' }
+      : student.gender === 'F'
+        ? { bg: '#fff0f6', border: '#ffadd2' }
+        : { bg: '#f6ffed', border: '#b7eb8f' }
     : { bg: '#fafafa', border: isOver ? '#1677ff' : '#e0e0e0' }
 
   return (
