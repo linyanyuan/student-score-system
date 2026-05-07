@@ -6,6 +6,7 @@ from app.models.exam import Exam
 from app.models.exam_grade_subject import ExamGradeSubject
 from app.models.score import Score
 from app.models.subject import Subject
+from app.models.total_rank import TotalRank
 from app.models.user import User
 from app.schemas.exam import (
     ExamCreate,
@@ -197,10 +198,8 @@ def delete_exam(
     if not obj:
         raise HTTPException(status_code=404, detail="考试不存在")
 
-    has_scores = db.query(Score).filter(Score.exam_id == exam_id).first()
-    if has_scores:
-        raise HTTPException(status_code=400, detail="该考试已有成绩记录，无法删除")
-
+    db.query(TotalRank).filter(TotalRank.exam_id == exam_id).delete(synchronize_session=False)
+    db.query(Score).filter(Score.exam_id == exam_id).delete(synchronize_session=False)
     db.query(ExamGradeSubject).filter(ExamGradeSubject.exam_id == exam_id).delete(synchronize_session=False)
     db.delete(obj)
     db.commit()

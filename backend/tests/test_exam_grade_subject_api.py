@@ -17,6 +17,7 @@ from app.models.school import School
 from app.models.score import Score
 from app.models.subject import Subject
 from app.models.student import Student
+from app.models.total_rank import TotalRank
 from app.models.user import User
 
 
@@ -203,6 +204,29 @@ class ExamGradeSubjectApiTests(unittest.TestCase):
         )
         self.assertEqual(valid_score_response.status_code, 201)
 
+    def test_delete_exam_with_scores_deletes_related_score_data(self):
+        exam_payload = self._create_exam().json()
+        exam_id = exam_payload["id"]
+        self.db.add_all(
+            [
+                Score(student_id=self.student_g7.id, exam_id=exam_id, subject_id=self.subject_chinese.id, score=91),
+                TotalRank(student_id=self.student_g7.id, exam_id=exam_id, total_score=91, rank_class=1, rank_grade=1),
+            ]
+        )
+        self.db.commit()
+
+        response = self.client.delete(f"/api/exams/{exam_id}")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.db.query(Score).filter(Score.exam_id == exam_id).count(), 0)
+        self.assertEqual(self.db.query(TotalRank).filter(TotalRank.exam_id == exam_id).count(), 0)
+        with self.engine.connect() as conn:
+            grade_subject_count = conn.execute(
+                text("SELECT COUNT(*) FROM exam_grade_subjects WHERE exam_id = :exam_id"),
+                {"exam_id": exam_id},
+            ).scalar_one()
+        self.assertEqual(grade_subject_count, 0)
+
     def test_export_scores_splits_grade_sheets_with_grade_specific_subject_headers(self):
         exam_payload = self._create_exam().json()
         exam_id = exam_payload["id"]
@@ -264,7 +288,7 @@ class ExamGradeSubjectApiTests(unittest.TestCase):
         imported_scores = self.db.query(Score).filter(Score.student_id == created.id, Score.exam_id == exam_id).all()
         self.assertEqual(len(imported_scores), 2)
 
-    def test_import_scores_does_not_create_missing_student_when_row_fails_validation(self):
+    def test_import_scores_fills_missing_required_subject_score_with_zero(self):
         exam_payload = self._create_exam().json()
         exam_id = exam_payload["id"]
 
@@ -289,10 +313,17 @@ class ExamGradeSubjectApiTests(unittest.TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["success_count"], 0)
-        self.assertEqual(response.json()["error_count"], 1)
+        self.assertEqual(response.json()["success_count"], 1)
+        self.assertEqual(response.json()["error_count"], 0)
         created = self.db.query(Student).filter(Student.student_no == "S7003").first()
-        self.assertIsNone(created)
+        self.assertIsNotNone(created)
+
+        imported_scores = {
+            score.subject_id: score.score
+            for score in self.db.query(Score).filter(Score.student_id == created.id, Score.exam_id == exam_id).all()
+        }
+        self.assertEqual(imported_scores[self.subject_chinese.id], 88)
+        self.assertEqual(imported_scores[self.subject_math.id], 0)
 
 
 if __name__ == "__main__":

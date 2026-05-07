@@ -1184,9 +1184,7 @@ def import_scores(
                 )
                 if not has_value:
                     missing_required.append(subject_name)
-            if missing_required:
-                errors.append({"row": idx, "error": f"必填科目缺少成绩: {', '.join(missing_required)}"})
-                continue
+            missing_required_set = set(missing_required)
 
             if pending_student is not None:
                 db.add(pending_student)
@@ -1196,9 +1194,10 @@ def import_scores(
                 students_by_class_and_name.setdefault(key, []).append(pending_student)
 
             for col_idx, subject in subject_cols:
-                if col_idx < len(row) and row[col_idx] is not None and str(row[col_idx]).strip() != "":
+                has_score_value = col_idx < len(row) and row[col_idx] is not None and str(row[col_idx]).strip() != ""
+                if has_score_value or subject.name in missing_required_set:
                     try:
-                        score_val = float(row[col_idx])
+                        score_val = float(row[col_idx]) if has_score_value else 0
                     except (ValueError, TypeError):
                         errors.append({"row": idx, "error": f"科目 '{subject.name}' 分数格式错误"})
                         continue
