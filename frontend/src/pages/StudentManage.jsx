@@ -61,6 +61,14 @@ const fieldTypeLabels = {
   select: '下拉选项',
 }
 
+const genderOptions = [
+  { label: '男', value: 'M' },
+  { label: '女', value: 'F' },
+  { label: '未知', value: 'U' },
+]
+
+const genderLabels = Object.fromEntries(genderOptions.map((item) => [item.value, item.label]))
+
 const GRADE_RANK = {
   一年级: 1,
   二年级: 2,
@@ -466,7 +474,7 @@ export default function StudentManage() {
   const studentColumns = [
     { title: '学号', dataIndex: 'student_no', key: 'student_no', width: 120 },
     { title: '姓名', dataIndex: 'name', key: 'name', width: 100 },
-    { title: '性别', dataIndex: 'gender', key: 'gender', width: 80, render: (value) => (value === 'M' ? '男' : '女') },
+    { title: '性别', dataIndex: 'gender', key: 'gender', width: 80, render: (value) => genderLabels[value] || '未知' },
     { title: '出生日期', dataIndex: 'birth_date', key: 'birth_date', width: 120 },
     { title: '班级', key: 'class_name', width: 140, render: (_, record) => classMap[record.class_id] || '-' },
     { title: '联系方式', dataIndex: 'phone', key: 'phone', width: 140 },
@@ -804,7 +812,7 @@ export default function StudentManage() {
             label="性别"
             rules={[{ required: true, message: '请选择性别' }]}
           >
-            <Select options={[{ label: '男', value: 'M' }, { label: '女', value: 'F' }]} />
+            <Select options={genderOptions} />
           </Form.Item>
           <Form.Item name="birth_date" label="出生日期">
             <DatePicker style={{ width: '100%' }} />

@@ -15,8 +15,8 @@ class StudentCreate(BaseModel):
     @field_validator("gender")
     @classmethod
     def validate_gender(cls, v: str) -> str:
-        if v not in ("M", "F"):
-            raise ValueError("性别必须为 M 或 F")
+        if v not in ("M", "F", "U"):
+            raise ValueError("性别必须为 M、F 或 U")
         return v
 
 
@@ -32,8 +32,8 @@ class StudentUpdate(BaseModel):
     @field_validator("gender")
     @classmethod
     def validate_gender(cls, v: str | None) -> str | None:
-        if v is not None and v not in ("M", "F"):
-            raise ValueError("性别必须为 M 或 F")
+        if v is not None and v not in ("M", "F", "U"):
+            raise ValueError("性别必须为 M、F 或 U")
         return v
 
 

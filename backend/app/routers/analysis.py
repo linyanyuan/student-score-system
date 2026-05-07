@@ -119,30 +119,32 @@ def _calc_rates(scores: list[float], max_score: float | None = None) -> dict:
     """Calculate distribution rates and counts. If max_score is provided, use percentage thresholds."""
     if not scores:
         return {
-            "excellent_rate": 0.0, "good_rate": 0.0, "pass_rate": 0.0, "fail_rate": 0.0,
-            "excellent_count": 0, "good_count": 0, "pass_count": 0, "fail_count": 0, "total_count": 0,
+            "excellent_rate": 0.0, "good_rate": 0.0, "pass_rate": 0.0, "low_rate": 0.0, "fail_rate": 0.0,
+            "excellent_count": 0, "good_count": 0, "pass_count": 0, "low_count": 0, "fail_count": 0, "total_count": 0,
         }
     n = len(scores)
     if max_score and max_score > 0:
-        # Use percentage thresholds for total scores
-        excellent = sum(1 for s in scores if s / max_score >= 0.9)
-        good = sum(1 for s in scores if 0.8 <= s / max_score < 0.9)
-        pass_ = sum(1 for s in scores if 0.6 <= s / max_score < 0.8)
+        excellent = sum(1 for s in scores if s / max_score >= 0.8)
+        good = sum(1 for s in scores if s / max_score >= 0.7)
+        pass_ = sum(1 for s in scores if s / max_score >= 0.6)
+        low = sum(1 for s in scores if s / max_score <= 0.3)
         fail = sum(1 for s in scores if s / max_score < 0.6)
     else:
-        # Use absolute thresholds for single subjects
-        excellent = sum(1 for s in scores if s >= 90)
-        good = sum(1 for s in scores if 80 <= s < 90)
-        pass_ = sum(1 for s in scores if 60 <= s < 80)
+        excellent = sum(1 for s in scores if s >= 80)
+        good = sum(1 for s in scores if s >= 70)
+        pass_ = sum(1 for s in scores if s >= 60)
+        low = sum(1 for s in scores if s <= 30)
         fail = sum(1 for s in scores if s < 60)
     return {
         "excellent_rate": round(excellent / n, 4),
         "good_rate": round(good / n, 4),
         "pass_rate": round(pass_ / n, 4),
+        "low_rate": round(low / n, 4),
         "fail_rate": round(fail / n, 4),
         "excellent_count": excellent,
         "good_count": good,
         "pass_count": pass_,
+        "low_count": low,
         "fail_count": fail,
         "total_count": n,
     }
@@ -206,22 +208,35 @@ def _calc_three_rate_scores(
     class_scores: dict[int, list[float]],
     subject_name: str | None,
     full_score_config: dict[str, float] | None = None,
+    class_total_counts: dict[int, int] | None = None,
 ) -> dict[int, dict]:
     """Calculate per-class three-rate points and average score for one subject."""
     total_score = _subject_full_score_for_three_rates(subject_name, full_score_config=full_score_config)
-    excellent_threshold = total_score * 0.9
+    excellent_threshold = total_score * 0.8
     good_threshold = total_score * 0.7
     pass_threshold = total_score * 0.6
+    low_threshold = total_score * 0.3
 
     metrics: dict[int, dict] = {}
     for class_id, scores in class_scores.items():
         normalized_scores = [float(s) for s in scores if s is not None]
+        denominator = (
+            int(class_total_counts.get(class_id, len(normalized_scores)))
+            if class_total_counts is not None
+            else len(normalized_scores)
+        )
         if not normalized_scores or total_score <= 0:
             metrics[class_id] = {
-                "student_count": len(normalized_scores),
+                "score_count": len(normalized_scores),
+                "student_count": denominator,
                 "excellent_count": 0,
                 "good_count": 0,
                 "pass_count": 0,
+                "low_count": 0,
+                "excellent_rate": 0.0,
+                "good_rate": 0.0,
+                "pass_rate": 0.0,
+                "low_rate": 0.0,
                 "avg_score": round(float(sum(normalized_scores) / len(normalized_scores)), 2) if normalized_scores else 0.0,
             }
             continue
@@ -229,22 +244,37 @@ def _calc_three_rate_scores(
         excellent_count = sum(1 for score in normalized_scores if score >= excellent_threshold)
         good_count = sum(1 for score in normalized_scores if score >= good_threshold)
         pass_count = sum(1 for score in normalized_scores if score >= pass_threshold)
+        low_count = sum(1 for score in normalized_scores if score <= low_threshold)
+        rate_denominator = denominator if denominator > 0 else len(normalized_scores)
         metrics[class_id] = {
-            "student_count": len(normalized_scores),
+            "score_count": len(normalized_scores),
+            "student_count": denominator,
             "excellent_count": excellent_count,
             "good_count": good_count,
             "pass_count": pass_count,
+            "low_count": low_count,
+            "excellent_rate": round(excellent_count / rate_denominator, 4) if rate_denominator > 0 else 0.0,
+            "good_rate": round(good_count / rate_denominator, 4) if rate_denominator > 0 else 0.0,
+            "pass_rate": round(pass_count / rate_denominator, 4) if rate_denominator > 0 else 0.0,
+            "low_rate": round(low_count / rate_denominator, 4) if rate_denominator > 0 else 0.0,
             "avg_score": round(float(sum(normalized_scores) / len(normalized_scores)), 2),
         }
 
-    max_excellent = max((item["excellent_count"] for item in metrics.values()), default=0)
-    max_good = max((item["good_count"] for item in metrics.values()), default=0)
-    max_pass = max((item["pass_count"] for item in metrics.values()), default=0)
+    comparable_metrics = [item for item in metrics.values() if item.get("score_count", 0) > 0]
+    max_excellent = max((item["excellent_rate"] for item in comparable_metrics), default=0)
+    max_good = max((item["good_rate"] for item in comparable_metrics), default=0)
+    max_pass = max((item["pass_rate"] for item in comparable_metrics), default=0)
+
+    low_rate_rank_scores = {
+        low_rate: round(100.0 - index * 2.0, 2)
+        for index, low_rate in enumerate(sorted({item["low_rate"] for item in comparable_metrics}))
+    }
 
     for item in metrics.values():
-        item["excellent_rate_score"] = round(item["excellent_count"] / max_excellent * 100, 2) if max_excellent > 0 else 0.0
-        item["good_rate_score"] = round(item["good_count"] / max_good * 100, 2) if max_good > 0 else 0.0
-        item["pass_rate_score"] = round(item["pass_count"] / max_pass * 100, 2) if max_pass > 0 else 0.0
+        item["excellent_rate_score"] = round(item["excellent_rate"] / max_excellent * 100, 2) if max_excellent > 0 else 0.0
+        item["good_rate_score"] = round(item["good_rate"] / max_good * 100, 2) if max_good > 0 else 0.0
+        item["pass_rate_score"] = round(item["pass_rate"] / max_pass * 100, 2) if max_pass > 0 else 0.0
+        item["low_rate_score"] = low_rate_rank_scores.get(item["low_rate"], 0.0)
 
     return metrics
 
@@ -255,6 +285,7 @@ def _sort_three_rate_rank_rows(rows: list[dict]) -> list[dict]:
             float(row.get("excellent_rate_score", 0.0))
             + float(row.get("good_rate_score", 0.0))
             + float(row.get("pass_rate_score", 0.0))
+            + float(row.get("low_rate_score", 0.0))
             + float(row.get("avg_score", 0.0))
         )
         row["total_score"] = round(total_score, 2)
@@ -358,6 +389,21 @@ def exam_subject_three_rates_one_score_rank(
     student_class_map = {student_id: class_id for student_id, class_id in students}
     student_ids = list(student_class_map.keys())
 
+    imported_student_rows = db.query(Score.student_id).filter(
+        Score.exam_id == exam_id,
+        Score.student_id.in_(student_ids),
+    ).distinct().all()
+    class_imported_students: dict[int, set[int]] = {}
+    for (student_id,) in imported_student_rows:
+        student_class_id = student_class_map.get(student_id)
+        if student_class_id is None:
+            continue
+        class_imported_students.setdefault(student_class_id, set()).add(student_id)
+    class_total_counts = {
+        student_class_id: len(imported_students)
+        for student_class_id, imported_students in class_imported_students.items()
+    }
+
     score_rows = db.query(Score.student_id, Score.score).filter(
         Score.exam_id == exam_id,
         Score.subject_id == subject_id,
@@ -397,9 +443,10 @@ def exam_subject_three_rates_one_score_rank(
             group_scores,
             subject_name=subject.name,
             full_score_config=get_full_score_config_for_school(group_school_id),
+            class_total_counts=class_total_counts,
         )
         for class_id, class_metrics in metrics.items():
-            if class_metrics.get("student_count", 0) <= 0:
+            if class_metrics.get("score_count", 0) <= 0:
                 continue
             class_info = class_info_map.get(class_id)
             if not class_info:
@@ -410,6 +457,7 @@ def exam_subject_three_rates_one_score_rank(
                 "excellent_rate_score": class_metrics["excellent_rate_score"],
                 "good_rate_score": class_metrics["good_rate_score"],
                 "pass_rate_score": class_metrics["pass_rate_score"],
+                "low_rate_score": class_metrics["low_rate_score"],
                 "avg_score": class_metrics["avg_score"],
             })
 
@@ -826,8 +874,10 @@ def class_distribution(
     ]
     subjects = {s.id: s for s in db.query(Subject).filter(Subject.id.in_(subject_ids)).all()}
 
-    # Calculate max total score: use actual max score in data as reference
-    max_total = max(total_scores) if total_scores else 0
+    max_total = sum(
+        _subject_full_score_for_three_rates(subject.name, full_score_config=full_score_config)
+        for subject in subjects.values()
+    )
 
     subjects_dist = {}
     for subj_id, subj in subjects.items():
@@ -900,11 +950,18 @@ def class_three_rates_one_score(
         return []
 
     subject_scores_by_class: dict[int, dict[int, list[float]]] = {}
+    class_imported_students: dict[int, set[int]] = {}
     for subject_id, student_id, score in scores:
         student_class_id = student_class_map.get(student_id)
         if student_class_id is None:
             continue
+        class_imported_students.setdefault(student_class_id, set()).add(student_id)
         subject_scores_by_class.setdefault(subject_id, {}).setdefault(student_class_id, []).append(float(score))
+
+    class_total_counts = {
+        student_class_id: len(imported_students)
+        for student_class_id, imported_students in class_imported_students.items()
+    }
 
     if not subject_scores_by_class:
         return []
@@ -923,9 +980,10 @@ def class_three_rates_one_score(
             scoped_scores,
             subject_name=subject_name,
             full_score_config=full_score_config,
+            class_total_counts=class_total_counts,
         )
         class_metrics = metrics.get(class_id)
-        if not class_metrics or class_metrics["student_count"] == 0:
+        if not class_metrics or class_metrics.get("score_count", 0) == 0:
             continue
         rows.append({
             "subject_id": subject_id,
@@ -933,6 +991,7 @@ def class_three_rates_one_score(
             "excellent_rate_score": class_metrics["excellent_rate_score"],
             "good_rate_score": class_metrics["good_rate_score"],
             "pass_rate_score": class_metrics["pass_rate_score"],
+            "low_rate_score": class_metrics["low_rate_score"],
             "avg_score": class_metrics["avg_score"],
         })
 

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from fastapi.testclient import TestClient
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
@@ -228,6 +228,71 @@ class ExamGradeSubjectApiTests(unittest.TestCase):
         grade8_headers = [cell.value for cell in workbook["八年级"][1]]
         self.assertEqual(grade7_headers, ["学号", "姓名", "班级", "语文", "数学", "总分", "班级排名", "年级排名"])
         self.assertEqual(grade8_headers, ["学号", "姓名", "班级", "语文", "数学", "物理", "总分", "班级排名", "年级排名"])
+
+    def test_import_scores_creates_missing_student_with_unknown_gender(self):
+        exam_payload = self._create_exam().json()
+        exam_id = exam_payload["id"]
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["班级", "姓名", "考号", "语文", "数学"])
+        ws.append([self.class_g7.name, "新学生", "S7002", 88, 92])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        response = self.client.post(
+            "/api/scores/import",
+            params={"exam_id": exam_id, "grade": "七年级"},
+            files={
+                "file": (
+                    "scores.xlsx",
+                    buf.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["success_count"], 1)
+        created = self.db.query(Student).filter(Student.student_no == "S7002").first()
+        self.assertIsNotNone(created)
+        self.assertEqual(created.name, "新学生")
+        self.assertEqual(created.gender, "U")
+        self.assertEqual(created.class_id, self.class_g7.id)
+
+        imported_scores = self.db.query(Score).filter(Score.student_id == created.id, Score.exam_id == exam_id).all()
+        self.assertEqual(len(imported_scores), 2)
+
+    def test_import_scores_does_not_create_missing_student_when_row_fails_validation(self):
+        exam_payload = self._create_exam().json()
+        exam_id = exam_payload["id"]
+
+        wb = Workbook()
+        ws = wb.active
+        ws.append(["班级", "姓名", "考号", "语文", "数学"])
+        ws.append([self.class_g7.name, "缺分学生", "S7003", 88, None])
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+
+        response = self.client.post(
+            "/api/scores/import",
+            params={"exam_id": exam_id, "grade": "七年级"},
+            files={
+                "file": (
+                    "scores.xlsx",
+                    buf.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["success_count"], 0)
+        self.assertEqual(response.json()["error_count"], 1)
+        created = self.db.query(Student).filter(Student.student_no == "S7003").first()
+        self.assertIsNone(created)
 
 
 if __name__ == "__main__":

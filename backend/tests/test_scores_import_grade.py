@@ -100,6 +100,13 @@ class ScoreImportGradeTests(unittest.TestCase):
         resolved = _resolve_class_ids_by_name("3班", class_name_map)
         self.assertEqual(resolved, [2])
 
+    def test_resolve_class_ids_by_name_matches_parenthesized_grade_class_name(self):
+        class_name_map = {
+            1: "八（8）班",
+        }
+        resolved = _resolve_class_ids_by_name("8班", class_name_map)
+        self.assertEqual(resolved, [1])
+
     def test_normalize_header_text(self):
         self.assertEqual(_normalize_header_text("  道法（政治）  "), "道法(政治)")
 
