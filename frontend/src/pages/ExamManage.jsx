@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Button, DatePicker, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, message } from 'antd'
+import { Button, DatePicker, Form, Input, Modal, Select, Space, Table, Tag, message } from 'antd'
 import { CalendarOutlined, FilterOutlined, PlusOutlined, SearchOutlined, TeamOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 
@@ -209,6 +209,22 @@ export default function ExamManage() {
     }
   }
 
+  const confirmDeleteExam = (record) => {
+    Modal.confirm({
+      title: '删除本次考试',
+      content: (
+        <div>
+          <p>该考试已录入的成绩也会一并删除。</p>
+          <p>删除后无法恢复，请确认是否继续。</p>
+        </div>
+      ),
+      okText: '确认删除',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => handleDelete(record.id),
+    })
+  }
+
   const metrics = [
     {
       key: 'total',
@@ -269,9 +285,7 @@ export default function ExamManage() {
       render: (_, record) => (
         <Space>
           <Button size="small" onClick={() => handleOpenEdit(record)}>编辑</Button>
-          <Popconfirm title="确认删除？该考试已录入的成绩也会一并删除。" onConfirm={() => handleDelete(record.id)}>
-            <Button size="small" danger>删除</Button>
-          </Popconfirm>
+          <Button size="small" danger onClick={() => confirmDeleteExam(record)}>删除</Button>
         </Space>
       ),
     },
