@@ -23,6 +23,7 @@ from app.models.subject import Subject
 from app.models.total_rank import TotalRank
 from app.models.score_full_score_config import ScoreFullScoreConfig
 from app.models.user import User
+from app.services.exam_grade_subjects import load_exam_subjects_for_grade
 
 router = APIRouter(prefix="/api/analysis", tags=["成绩分析"])
 
@@ -193,6 +194,45 @@ def _subject_full_score_for_three_rates(
     return float(config.get("other_full_score", DEFAULT_SUBJECT_FULL_SCORES["other_full_score"]))
 
 
+def _total_full_score_for_three_rates(
+    subjects: list[Subject],
+    full_score_config: dict[str, float] | None = None,
+) -> float:
+    return round(
+        sum(
+            _subject_full_score_for_three_rates(
+                getattr(subject, "name", None),
+                full_score_config=full_score_config,
+            )
+            for subject in subjects
+        ),
+        2,
+    )
+
+
+def _fallback_exam_subjects_for_students(
+    db: Session,
+    exam_id: int,
+    student_ids: list[int],
+    school_id: int | None = None,
+) -> list[Subject]:
+    if not student_ids:
+        return []
+    subject_ids = [
+        row[0]
+        for row in db.query(Score.subject_id)
+        .filter(Score.exam_id == exam_id, Score.student_id.in_(student_ids))
+        .distinct()
+        .all()
+    ]
+    if not subject_ids:
+        return []
+    query = db.query(Subject).filter(Subject.id.in_(subject_ids))
+    if school_id is not None:
+        query = query.filter(Subject.school_id == school_id)
+    return query.all()
+
+
 def _grade_scope_class_ids_for_three_rates(
     all_class_ids: list[int],
     class_grade_map: dict[int, str],
@@ -209,9 +249,14 @@ def _calc_three_rate_scores(
     subject_name: str | None,
     full_score_config: dict[str, float] | None = None,
     class_total_counts: dict[int, int] | None = None,
+    full_score: float | None = None,
 ) -> dict[int, dict]:
     """Calculate per-class three-rate points and average score for one subject."""
-    total_score = _subject_full_score_for_three_rates(subject_name, full_score_config=full_score_config)
+    total_score = (
+        float(full_score)
+        if full_score is not None
+        else _subject_full_score_for_three_rates(subject_name, full_score_config=full_score_config)
+    )
     excellent_threshold = total_score * 0.8
     good_threshold = total_score * 0.7
     pass_threshold = total_score * 0.6
@@ -291,6 +336,28 @@ def _sort_three_rate_rank_rows(rows: list[dict]) -> list[dict]:
         row["total_score"] = round(total_score, 2)
     rows.sort(key=lambda item: (item["total_score"], item.get("avg_score", 0.0)), reverse=True)
     return rows
+
+
+def _three_rate_rank_row_for_class(
+    class_id: int,
+    class_name: str,
+    grade: str | None,
+    class_metrics: dict,
+) -> dict:
+    return {
+        "class_id": class_id,
+        "class_name": class_name,
+        "grade": grade,
+        "excellent_rate": class_metrics["excellent_rate"],
+        "good_rate": class_metrics["good_rate"],
+        "pass_rate": class_metrics["pass_rate"],
+        "low_rate": class_metrics["low_rate"],
+        "excellent_rate_score": class_metrics["excellent_rate_score"],
+        "good_rate_score": class_metrics["good_rate_score"],
+        "pass_rate_score": class_metrics["pass_rate_score"],
+        "low_rate_score": class_metrics["low_rate_score"],
+        "avg_score": class_metrics["avg_score"],
+    }
 
 
 @router.get("/full-score-config")
@@ -451,15 +518,154 @@ def exam_subject_three_rates_one_score_rank(
             class_info = class_info_map.get(class_id)
             if not class_info:
                 continue
-            rows.append({
-                "class_id": class_id,
-                "class_name": class_info["class_name"],
-                "excellent_rate_score": class_metrics["excellent_rate_score"],
-                "good_rate_score": class_metrics["good_rate_score"],
-                "pass_rate_score": class_metrics["pass_rate_score"],
-                "low_rate_score": class_metrics["low_rate_score"],
-                "avg_score": class_metrics["avg_score"],
-            })
+            rows.append(
+                _three_rate_rank_row_for_class(
+                    class_id=class_id,
+                    class_name=class_info["class_name"],
+                    grade=class_info["grade"],
+                    class_metrics=class_metrics,
+                )
+            )
+
+    return _sort_three_rate_rank_rows(rows)
+
+
+@router.get("/exam/{exam_id}/three-rates-one-score-rank")
+def exam_total_three_rates_one_score_rank(
+    exam_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    exam = db.query(Exam).filter(Exam.id == exam_id).first()
+    if not exam:
+        raise HTTPException(status_code=404, detail="考试不存在")
+
+    if current_user.role == "student":
+        if current_user.student_id is None:
+            raise HTTPException(status_code=400, detail="student account is not bound to a student profile")
+        bound_student = db.query(Student).filter(Student.id == current_user.student_id).first()
+        if bound_student is None:
+            raise HTTPException(status_code=400, detail="bound student profile does not exist")
+        accessible = [bound_student.class_id]
+    elif current_user.role == "teacher":
+        accessible = _teacher_exam_grade_class_ids(current_user, db, exam_id)
+    else:
+        accessible = get_accessible_class_ids(current_user, db)
+    school_id = get_user_school_id(current_user)
+
+    class_query = db.query(Class.id, Class.name, Class.grade, Class.school_id)
+    if school_id is not None:
+        class_query = class_query.filter(Class.school_id == school_id)
+    if accessible is not None:
+        class_query = class_query.filter(Class.id.in_(accessible))
+    class_rows = class_query.all()
+    if not class_rows:
+        return []
+
+    class_info_map = {
+        class_id: {
+            "class_name": class_name,
+            "grade": grade,
+            "school_id": class_school_id,
+        }
+        for class_id, class_name, grade, class_school_id in class_rows
+    }
+    class_ids = list(class_info_map.keys())
+
+    students = db.query(Student.id, Student.class_id).filter(Student.class_id.in_(class_ids)).all()
+    if not students:
+        return []
+    student_class_map = {student_id: class_id for student_id, class_id in students}
+    student_ids = list(student_class_map.keys())
+
+    imported_student_rows = db.query(Score.student_id).filter(
+        Score.exam_id == exam_id,
+        Score.student_id.in_(student_ids),
+    ).distinct().all()
+    class_imported_students: dict[int, set[int]] = {}
+    for (student_id,) in imported_student_rows:
+        student_class_id = student_class_map.get(student_id)
+        if student_class_id is None:
+            continue
+        class_imported_students.setdefault(student_class_id, set()).add(student_id)
+    class_total_counts = {
+        student_class_id: len(imported_students)
+        for student_class_id, imported_students in class_imported_students.items()
+    }
+
+    score_rows = db.query(TotalRank.student_id, TotalRank.total_score).filter(
+        TotalRank.exam_id == exam_id,
+        TotalRank.student_id.in_(student_ids),
+    ).all()
+    if not score_rows:
+        return []
+
+    class_scores: dict[int, list[float]] = {}
+    for student_id, total_score in score_rows:
+        class_id = student_class_map.get(student_id)
+        if class_id is None:
+            continue
+        class_scores.setdefault(class_id, []).append(float(total_score))
+    if not class_scores:
+        return []
+
+    grade_grouped_scores: dict[tuple[int | None, str], dict[int, list[float]]] = {}
+    for class_id, scores in class_scores.items():
+        info = class_info_map.get(class_id)
+        if not info:
+            continue
+        key = (info["school_id"], info["grade"])
+        grade_grouped_scores.setdefault(key, {})[class_id] = scores
+
+    full_score_config_cache: dict[int | None, dict[str, float]] = {}
+
+    def get_full_score_config_for_school(target_school_id: int | None) -> dict[str, float]:
+        if target_school_id not in full_score_config_cache:
+            full_score_config_cache[target_school_id] = _load_subject_full_score_config(db, target_school_id)
+        return full_score_config_cache[target_school_id]
+
+    rows = []
+    for (group_school_id, grade), group_scores in grade_grouped_scores.items():
+        group_class_ids = set(group_scores.keys())
+        group_student_ids = [
+            student_id
+            for student_id, class_id in student_class_map.items()
+            if class_id in group_class_ids
+        ]
+        subjects = load_exam_subjects_for_grade(db, exam_id, grade, group_school_id)
+        if not subjects:
+            subjects = _fallback_exam_subjects_for_students(
+                db,
+                exam_id,
+                group_student_ids,
+                school_id=group_school_id,
+            )
+        full_score_config = get_full_score_config_for_school(group_school_id)
+        total_full_score = _total_full_score_for_three_rates(
+            subjects,
+            full_score_config=full_score_config,
+        )
+        metrics = _calc_three_rate_scores(
+            group_scores,
+            subject_name=None,
+            full_score_config=full_score_config,
+            class_total_counts=class_total_counts,
+            full_score=total_full_score,
+        )
+        for class_id, class_metrics in metrics.items():
+            if class_metrics.get("score_count", 0) <= 0:
+                continue
+            class_info = class_info_map.get(class_id)
+            if not class_info:
+                continue
+            rows.append(
+                _three_rate_rank_row_for_class(
+                    class_id=class_id,
+                    class_name=class_info["class_name"],
+                    grade=class_info["grade"],
+                    class_metrics=class_metrics,
+                )
+            )
 
     return _sort_three_rate_rank_rows(rows)
 
@@ -988,6 +1194,10 @@ def class_three_rates_one_score(
         rows.append({
             "subject_id": subject_id,
             "subject_name": subject_name,
+            "excellent_rate": class_metrics["excellent_rate"],
+            "good_rate": class_metrics["good_rate"],
+            "pass_rate": class_metrics["pass_rate"],
+            "low_rate": class_metrics["low_rate"],
             "excellent_rate_score": class_metrics["excellent_rate_score"],
             "good_rate_score": class_metrics["good_rate_score"],
             "pass_rate_score": class_metrics["pass_rate_score"],

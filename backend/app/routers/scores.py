@@ -19,6 +19,7 @@ from app.models.user import User
 from app.schemas.score import ScoreCreate, ScoreUpdate, ScoreItemResponse, ScorePaginatedResponse, BatchDeleteScoresRequest
 from app.services.exam_grade_subjects import load_exam_subjects_for_grade, parse_grade_tokens
 from app.utils.ranking import recalculate_ranks
+from app.routers.analysis import _load_subject_full_score_config, _subject_full_score_for_three_rates
 
 router = APIRouter(prefix="/api/scores", tags=["成绩管理"])
 
@@ -538,7 +539,9 @@ def list_scores(
     students = [students_map[sid] for sid in paginated_student_ids if sid in students_map]
 
     student_ids = [s.id for s in students]
-    class_map = {c.id: c.name for c in db.query(Class).all()}
+    class_rows = db.query(Class).all()
+    class_map = {c.id: c.name for c in class_rows}
+    class_school_map = {c.id: c.school_id for c in class_rows}
     subject_map = {s.id: s.name for s in db.query(Subject).all()}
 
     # Get scores for these students in this exam
@@ -576,11 +579,26 @@ def list_scores(
         }
 
     # Build response
+    full_score_config_cache: dict[int | None, dict[str, float]] = {}
     items = []
     for s in students:
         subj_scores = student_scores.get(s.id, {})
         curr_rank = current_ranks.get(s.id)
         prev_rank = prev_ranks.get(s.id)
+        school_id_for_full_score = class_school_map.get(s.class_id) or get_user_school_id(current_user)
+        if school_id_for_full_score not in full_score_config_cache:
+            full_score_config_cache[school_id_for_full_score] = _load_subject_full_score_config(
+                db,
+                school_id_for_full_score,
+            )
+        full_score_config = full_score_config_cache[school_id_for_full_score]
+        subject_full_scores = {
+            subject_name: _subject_full_score_for_three_rates(
+                subject_name,
+                full_score_config=full_score_config,
+            )
+            for subject_name in subj_scores
+        }
 
         items.append(ScoreItemResponse(
             student_id=s.id,
@@ -588,6 +606,7 @@ def list_scores(
             student_name=s.name,
             class_name=class_map.get(s.class_id, ""),
             subjects=subj_scores,
+            subject_full_scores=subject_full_scores,
             total_score=curr_rank.total_score if curr_rank else sum(subj_scores.values()),
             rank_class=curr_rank.rank_class if curr_rank else None,
             rank_grade=curr_rank.rank_grade if curr_rank else None,
