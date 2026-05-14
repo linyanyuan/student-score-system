@@ -6,6 +6,8 @@ from app.routers.analysis import (
     _grade_scope_class_ids_for_three_rates,
     _sort_three_rate_rank_rows,
     _subject_full_score_for_three_rates,
+    _total_full_score_for_three_rates,
+    _three_rate_rank_row_for_class,
 )
 
 
@@ -51,6 +53,34 @@ class ThreeRatesOneScoreTests(unittest.TestCase):
         self.assertEqual(result[1]["class_name"], "2班")
         self.assertEqual(result[1]["total_score"], 425.0)
 
+    def test_three_rate_rank_row_includes_rates_and_scores(self):
+        row = _three_rate_rank_row_for_class(
+            class_id=3,
+            class_name="八3班",
+            grade="八年级",
+            class_metrics={
+                "excellent_rate": 0.48,
+                "good_rate": 1.0,
+                "pass_rate": 0.87,
+                "low_rate": 0.92,
+                "excellent_rate_score": 46.0,
+                "good_rate_score": 100.0,
+                "pass_rate_score": 87.0,
+                "low_rate_score": 94.0,
+                "avg_score": 68.0,
+            },
+        )
+
+        self.assertEqual(row["class_id"], 3)
+        self.assertEqual(row["class_name"], "八3班")
+        self.assertEqual(row["grade"], "八年级")
+        self.assertEqual(row["excellent_rate"], 0.48)
+        self.assertEqual(row["good_rate"], 1.0)
+        self.assertEqual(row["pass_rate"], 0.87)
+        self.assertEqual(row["low_rate"], 0.92)
+        self.assertEqual(row["excellent_rate_score"], 46.0)
+        self.assertEqual(row["low_rate_score"], 94.0)
+
     def test_subject_full_score_mapping(self):
         self.assertEqual(_subject_full_score_for_three_rates("语文"), 120.0)
         self.assertEqual(_subject_full_score_for_three_rates("数学"), 120.0)
@@ -68,6 +98,42 @@ class ThreeRatesOneScoreTests(unittest.TestCase):
         self.assertEqual(_subject_full_score_for_three_rates("数学", full_score_config=config), 130.0)
         self.assertEqual(_subject_full_score_for_three_rates("英语", full_score_config=config), 125.0)
         self.assertEqual(_subject_full_score_for_three_rates("物理", full_score_config=config), 70.0)
+
+    def test_total_full_score_sums_exam_grade_subjects(self):
+        subjects = [
+            type("SubjectStub", (), {"name": "语文"})(),
+            type("SubjectStub", (), {"name": "数学"})(),
+            type("SubjectStub", (), {"name": "物理"})(),
+        ]
+        config = {
+            "chinese_full_score": 110.0,
+            "math_full_score": 130.0,
+            "english_full_score": 125.0,
+            "other_full_score": 70.0,
+        }
+
+        self.assertEqual(_total_full_score_for_three_rates(subjects, full_score_config=config), 310.0)
+
+    def test_calc_three_rate_scores_can_use_total_full_score(self):
+        class_scores = {
+            1: [280, 245, 190, 80],
+            2: [300, 260, 210, 100],
+        }
+        class_total_counts = {1: 4, 2: 4}
+
+        result = _calc_three_rate_scores(
+            class_scores,
+            subject_name=None,
+            full_score=310.0,
+            class_total_counts=class_total_counts,
+        )
+
+        self.assertEqual(result[1]["excellent_count"], 1)  # 310*0.8=248
+        self.assertEqual(result[1]["good_count"], 2)
+        self.assertEqual(result[1]["pass_count"], 3)
+        self.assertEqual(result[1]["low_count"], 1)
+        self.assertEqual(result[2]["excellent_count"], 2)
+        self.assertEqual(result[2]["excellent_rate_score"], 100.0)
 
     def test_calc_three_rate_scores_uses_fixed_full_score_thresholds(self):
         class_scores = {

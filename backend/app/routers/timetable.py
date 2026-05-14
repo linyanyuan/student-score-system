@@ -13,6 +13,86 @@ from app.schemas.scheduling import TimetableItem, TimetableResponse
 router = APIRouter(prefix="/api/timetable", tags=["timetable"])
 
 
+_CHINESE_DIGITS = {
+    "一": 1,
+    "二": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+    "十": 10,
+}
+
+
+def _parse_chinese_number(value: str | None) -> int | None:
+    if not value:
+        return None
+    if value == "十":
+        return 10
+    if "十" in value:
+        left, right = value.split("十", 1)
+        tens = _CHINESE_DIGITS.get(left, 1 if left == "" else None)
+        ones = _CHINESE_DIGITS.get(right, 0 if right == "" else None)
+        if tens is None or ones is None:
+            return None
+        return tens * 10 + ones
+    return _CHINESE_DIGITS.get(value)
+
+
+def _period_key(name: str | None) -> str:
+    text = "".join(str(name or "").split())
+    if text.startswith("第") and text.endswith("节"):
+        middle = text[1:-1]
+        if middle.isdigit():
+            return f"lesson-{int(middle)}"
+        parsed = _parse_chinese_number(middle)
+        if parsed is not None:
+            return f"lesson-{parsed}"
+    if text.endswith("节"):
+        middle = text[:-1]
+        if middle.isdigit():
+            return f"lesson-{int(middle)}"
+        parsed = _parse_chinese_number(middle)
+        if parsed is not None:
+            return f"lesson-{parsed}"
+    return text
+
+
+def _school_period_alias_map(
+    db: Session,
+    rows: list[ClassTimetable],
+    period_map: dict[int, SchedulePeriod],
+) -> dict[int, SchedulePeriod]:
+    school_ids = sorted({row.school_id for row in rows if row.school_id is not None})
+    if not school_ids:
+        return {}
+
+    school_periods = (
+        db.query(SchedulePeriod)
+        .filter(SchedulePeriod.school_id.in_(school_ids))
+        .order_by(SchedulePeriod.school_id.asc(), SchedulePeriod.sort_order.asc(), SchedulePeriod.id.asc())
+        .all()
+    )
+    school_period_by_key = {
+        (item.school_id, _period_key(item.name)): item
+        for item in school_periods
+        if item.school_id is not None
+    }
+
+    alias_map: dict[int, SchedulePeriod] = {}
+    for row in rows:
+        period = period_map.get(row.period_id)
+        if period is None or row.school_id is None:
+            continue
+        school_period = school_period_by_key.get((row.school_id, _period_key(period.name)))
+        if school_period is not None:
+            alias_map[row.period_id] = school_period
+    return alias_map
+
+
 def _build_timetable_items(db: Session, rows: list[ClassTimetable]) -> list[TimetableItem]:
     if not rows:
         return []
@@ -25,15 +105,19 @@ def _build_timetable_items(db: Session, rows: list[ClassTimetable]) -> list[Time
     class_name_map = {item.id: item.name for item in db.query(Class).filter(Class.id.in_(class_ids)).all()}
     subject_name_map = {item.id: item.name for item in db.query(Subject).filter(Subject.id.in_(subject_ids)).all()}
     teacher_name_map = {item.id: item.username for item in db.query(User).filter(User.id.in_(teacher_ids)).all()}
-    period_name_map = {item.id: item.name for item in db.query(SchedulePeriod).filter(SchedulePeriod.id.in_(period_ids)).all()}
+    period_map = {item.id: item for item in db.query(SchedulePeriod).filter(SchedulePeriod.id.in_(period_ids)).all()}
+    school_period_aliases = _school_period_alias_map(db, rows, period_map)
 
     items: list[TimetableItem] = []
     for row in rows:
+        period = school_period_aliases.get(row.period_id) or period_map.get(row.period_id)
         items.append(
             TimetableItem(
                 weekday=row.weekday,
                 period_id=row.period_id,
-                period_name=period_name_map.get(row.period_id),
+                period_name=period.name if period else None,
+                period_start_time=period.start_time if period else None,
+                period_end_time=period.end_time if period else None,
                 class_id=row.class_id,
                 class_name=class_name_map.get(row.class_id),
                 subject_id=row.subject_id,

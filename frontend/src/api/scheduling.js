@@ -28,9 +28,19 @@ export const getScheduleDraft = (draftId) => request.get(`/api/schedule/drafts/$
 export const getScheduleDraftItems = (draftId) => request.get(`/api/schedule/drafts/${draftId}/items`)
 export const publishScheduleDraft = (draftId) => request.post(`/api/schedule/drafts/${draftId}/publish`)
 
+export const createScheduleImport = (formData) =>
+  request.post('/api/schedule/imports', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+export const downloadScheduleImportTemplate = () =>
+  request.get('/api/schedule/imports/template', { responseType: 'blob' })
+export const getScheduleImport = (importId) => request.get(`/api/schedule/imports/${importId}`)
+export const getScheduleImportItems = (importId) => request.get(`/api/schedule/imports/${importId}/items`)
+export const patchScheduleImportItem = (importId, itemId, data) => request.patch(`/api/schedule/imports/${importId}/items/${itemId}`, data)
+export const createScheduleImportDraft = (importId) => request.post(`/api/schedule/imports/${importId}/draft`)
+
 export const getClassTimetable = (classId) => request.get(`/api/timetable/class/${classId}`)
 export const getTeacherTimetable = (teacherId) => request.get(`/api/timetable/teacher/${teacherId}`)
 export const getMyTimetable = () => request.get('/api/timetable/my')
 
 export const createAutoScheduleTask = (grade) => request.post(`/api/schedule/drafts/${encodeURIComponent(grade)}/solve`)
-

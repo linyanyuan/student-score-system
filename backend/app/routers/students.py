@@ -11,6 +11,7 @@ from app.dependencies import get_db, require_teacher_or_admin, get_accessible_cl
 from app.models.student import Student
 from app.models.class_ import Class
 from app.models.custom_field import CustomFieldDefinition
+from app.models.teacher_class import TeacherClass
 from app.models.user import User
 from app.schemas.student import StudentCreate, StudentUpdate, StudentResponse, PaginatedResponse, BatchDeleteRequest, BatchDeleteResponse
 
@@ -24,10 +25,31 @@ def list_students(
     student_no: str | None = None,
     name: str | None = None,
     class_id: int | None = None,
+    scope: str | None = Query(None),
     current_user: User = Depends(require_teacher_or_admin),
     db: Session = Depends(get_db),
 ):
     accessible = get_accessible_class_ids(current_user, db)
+    if current_user.role == "teacher" and scope == "analysis" and current_user.school_id is not None:
+        grade_rows = (
+            db.query(Class.grade)
+            .join(TeacherClass, TeacherClass.class_id == Class.id)
+            .filter(
+                TeacherClass.teacher_id == current_user.id,
+                Class.school_id == current_user.school_id,
+            )
+            .all()
+        )
+        grades = {row[0] for row in grade_rows if row[0]}
+        if grades:
+            accessible = [
+                row[0]
+                for row in db.query(Class.id)
+                .filter(Class.school_id == current_user.school_id, Class.grade.in_(grades))
+                .all()
+            ]
+        else:
+            accessible = []
     query = db.query(Student)
 
     if accessible is not None:

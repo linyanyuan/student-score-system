@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { buildSchedulePeriodPayload, isCreatingPeriod } from './homePeriodUtils.js';
+import { buildSchedulePeriodPayload, buildTimetableRows, isCreatingPeriod } from './homePeriodUtils.js';
 
 assert.equal(isCreatingPeriod(null), true);
 assert.equal(isCreatingPeriod(undefined), true);
@@ -37,5 +37,31 @@ assert.deepEqual(excludedPayload, {
   sort_order: 1,
   include_in_auto_schedule: false,
 });
+
+const timetableRows = buildTimetableRows(
+  [
+    {
+      weekday: 1,
+      period_id: 2,
+      period_name: '第一节',
+      subject_name: '数学',
+      teacher_name: 'linyan',
+    },
+    {
+      weekday: 2,
+      period_id: 31,
+      period_name: '第2节',
+      subject_name: '语文',
+      teacher_name: 'xiaofang',
+    },
+  ],
+  [
+    { id: 30, name: '第1节', start_time: '08:10', end_time: '08:55' },
+    { id: 31, name: '第2节', start_time: '09:05', end_time: '09:50' },
+  ],
+);
+
+assert.equal(timetableRows[0].day1.subject_name, '数学');
+assert.equal(timetableRows[1].day2.subject_name, '语文');
 
 console.log('homePeriodUtils checks passed');

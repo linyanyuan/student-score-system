@@ -560,6 +560,7 @@ body {
   font-size: 12px;
 }
 
+.class-analysis-grade-pivot,
 .class-analysis-deep-pivot {
   margin: 0 0 16px;
   padding: 18px 20px;

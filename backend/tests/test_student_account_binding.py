@@ -11,6 +11,7 @@ from app.models.class_ import Class
 from app.models.exam import Exam
 from app.models.school import School
 from app.models.score import Score
+from app.models.score_full_score_config import ScoreFullScoreConfig
 from app.models.student import Student
 from app.models.subject import Subject
 from app.models.total_rank import TotalRank
@@ -87,6 +88,15 @@ class StudentAccountBindingTests(unittest.TestCase):
                 ),
             ]
         )
+        self.db.add(
+            ScoreFullScoreConfig(
+                school_id=self.school.id,
+                chinese_full_score=110.0,
+                math_full_score=120.0,
+                english_full_score=120.0,
+                other_full_score=70.0,
+            )
+        )
         self.db.commit()
 
     def tearDown(self):
@@ -160,6 +170,7 @@ class StudentAccountBindingTests(unittest.TestCase):
         self.assertEqual(len(response.items), 1)
         self.assertEqual(response.items[0].student_id, self.student.id)
         self.assertEqual(response.items[0].student_no, self.student.student_no)
+        self.assertEqual(response.items[0].subject_full_scores["Math"], 70.0)
 
     def test_list_scores_rejects_unbound_student_account(self):
         current_user = SimpleNamespace(

@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ScoreCreate(BaseModel):
@@ -20,6 +20,7 @@ class ScoreItemResponse(BaseModel):
     student_name: str
     class_name: str
     subjects: dict[str, float]
+    subject_full_scores: dict[str, float] = Field(default_factory=dict)
     total_score: float
     rank_class: Optional[int] = None
     rank_grade: Optional[int] = None

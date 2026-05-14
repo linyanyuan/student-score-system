@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_db, get_current_user, require_admin_or_school_admin, get_user_school_id
 from app.models.class_ import Class
 from app.models.student import Student
+from app.models.teacher_class import TeacherClass
 from app.models.user import User
 from app.schemas.class_ import ClassCreate, ClassUpdate, ClassResponse
 
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/api/classes", tags=["班级管理"])
 
 @router.get("", response_model=list[ClassResponse])
 def list_classes(
+    scope: str | None = Query(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -24,7 +26,23 @@ def list_classes(
             return []
         return db.query(Class).filter(Class.id == bound_student.class_id).all()
     if current_user.role == "teacher":
-        from app.models.teacher_class import TeacherClass
+        if scope == "analysis" and current_user.school_id is not None:
+            grade_rows = (
+                db.query(Class.grade)
+                .join(TeacherClass, TeacherClass.class_id == Class.id)
+                .filter(
+                    TeacherClass.teacher_id == current_user.id,
+                    Class.school_id == current_user.school_id,
+                )
+                .all()
+            )
+            grades = {row[0] for row in grade_rows if row[0]}
+            if not grades:
+                return []
+            return db.query(Class).filter(
+                Class.school_id == current_user.school_id,
+                Class.grade.in_(grades),
+            ).all()
         class_ids = db.query(TeacherClass.class_id).filter(
             TeacherClass.teacher_id == current_user.id
         ).all()

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { Row, Col, Card, Select, Table, Tag, Spin, Empty, Typography, Tooltip } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Alert, Row, Col, Card, Select, Table, Tag, Spin, Empty, Typography, Tooltip } from 'antd'
 import { QuestionCircleOutlined } from '@ant-design/icons'
 import { Column } from '@ant-design/charts'
 import { getClasses } from '../api/class'
@@ -158,9 +158,10 @@ function RankListChart({ data }) {
   )
 }
 
-export default function ClassAnalysis({ examId }) {
+export default function ClassAnalysis({ examId, examGrades = [] }) {
   const [classes, setClasses] = useState([])
   const [subjects, setSubjects] = useState([])
+  const [selectedGrade, setSelectedGrade] = useState(null)
   const [classId, setClassId] = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -176,7 +177,7 @@ export default function ClassAnalysis({ examId }) {
   const [selectedThreeRateSubjectId, setSelectedThreeRateSubjectId] = useState(null)
 
   useEffect(() => {
-    getClasses().then((res) => setClasses(res.data || [])).catch(() => setClasses([]))
+    getClasses({ scope: 'analysis' }).then((res) => setClasses(res.data || [])).catch(() => setClasses([]))
     getSubjects()
       .then((res) => {
         const subjectList = res.data || []
@@ -187,41 +188,100 @@ export default function ClassAnalysis({ examId }) {
       .catch(() => setSubjects([]))
   }, [])
 
+  const examScopedClasses = useMemo(() => {
+    const allowedGrades = new Set(examGrades.filter(Boolean))
+    return allowedGrades.size > 0
+      ? classes.filter((item) => allowedGrades.has(item.grade))
+      : classes
+  }, [classes, examGrades])
+
+  const gradeOptions = useMemo(
+    () => Array.from(new Set(examScopedClasses.map((item) => item.grade).filter(Boolean))),
+    [examScopedClasses],
+  )
+
+  const filteredClasses = useMemo(
+    () => examScopedClasses.filter((item) => !selectedGrade || item.grade === selectedGrade),
+    [examScopedClasses, selectedGrade],
+  )
+
+  const gradeSelectionRequired = examId && gradeOptions.length > 1 && !selectedGrade
+  const canRenderGradeScopedContent = Boolean(examId) && !gradeSelectionRequired
+
+  useEffect(() => {
+    if (!examId) {
+      setSelectedGrade(null)
+      return
+    }
+    if (gradeOptions.length === 1) {
+      setSelectedGrade(gradeOptions[0])
+      return
+    }
+    if (selectedGrade && gradeOptions.includes(selectedGrade)) return
+    setSelectedGrade(null)
+  }, [examId, gradeOptions, selectedGrade])
+
+  useEffect(() => {
+    if (!classId) return
+    if (filteredClasses.some((item) => item.id === classId)) return
+    setClassId(null)
+  }, [classId, filteredClasses])
+
   useEffect(() => {
     if (!examId) {
       setTotalRankData([])
       return
     }
+    if (!canRenderGradeScopedContent) {
+      setTotalRankData([])
+      return
+    }
     getClassesRank(examId, undefined)
-      .then((res) => setTotalRankData(buildRankChartRowsWithGradeAverage(res.data || [])))
+      .then((res) => {
+        const rows = (res.data || []).filter((item) => !selectedGrade || item.grade === selectedGrade)
+        setTotalRankData(buildRankChartRowsWithGradeAverage(rows))
+      })
       .catch(() => setTotalRankData([]))
-  }, [examId])
+  }, [canRenderGradeScopedContent, examId, selectedGrade])
 
   useEffect(() => {
     if (!examId || !selectedRankSubjectId) {
       setSubjectRankData([])
       return
     }
+    if (!canRenderGradeScopedContent) {
+      setSubjectRankData([])
+      return
+    }
     getClassesRank(examId, selectedRankSubjectId)
-      .then((res) => setSubjectRankData(buildRankChartRowsWithGradeAverage(res.data || [])))
+      .then((res) => {
+        const rows = (res.data || []).filter((item) => !selectedGrade || item.grade === selectedGrade)
+        setSubjectRankData(buildRankChartRowsWithGradeAverage(rows))
+      })
       .catch(() => setSubjectRankData([]))
-  }, [examId, selectedRankSubjectId])
+  }, [canRenderGradeScopedContent, examId, selectedGrade, selectedRankSubjectId])
 
   useEffect(() => {
     if (!examId || !selectedThreeRateSubjectId) {
       setThreeRateRankData([])
       return
     }
+    if (!canRenderGradeScopedContent) {
+      setThreeRateRankData([])
+      return
+    }
     getExamSubjectThreeRatesOneScoreRank(examId, selectedThreeRateSubjectId)
       .then((res) => {
-        const data = (res.data || []).sort((a, b) => (b.total_score ?? 0) - (a.total_score ?? 0))
+        const data = (res.data || [])
+          .filter((item) => !selectedGrade || item.grade === selectedGrade)
+          .sort((a, b) => (b.total_score ?? 0) - (a.total_score ?? 0))
         setThreeRateRankData(data)
       })
       .catch(() => setThreeRateRankData([]))
-  }, [examId, selectedThreeRateSubjectId])
+  }, [canRenderGradeScopedContent, examId, selectedGrade, selectedThreeRateSubjectId])
 
   useEffect(() => {
-    if (!classId || !examId) {
+    if (!classId || !examId || !canRenderGradeScopedContent) {
       setDistribution(null)
       setBottomStudents([])
       setBiasedStudents([])
@@ -246,7 +306,7 @@ export default function ClassAnalysis({ examId }) {
         setBiasedStudents([])
       })
       .finally(() => setLoading(false))
-  }, [classId, examId])
+  }, [canRenderGradeScopedContent, classId, examId])
 
   const allSubjectNames = bottomStudents.length > 0
     ? Object.keys(bottomStudents[0].subjects || {})
@@ -359,6 +419,35 @@ export default function ClassAnalysis({ examId }) {
         <Empty description="请先在成绩列表中选择考试" />
       ) : (
         <>
+          <div className="class-analysis-grade-pivot" style={{ marginBottom: 16 }}>
+            <div className="class-analysis-deep-copy">
+              <span className="class-analysis-deep-kicker">分析范围</span>
+              <Text className="class-analysis-deep-title">先按年级查看，再进入班级深度分析</Text>
+            </div>
+            <div className="class-analysis-deep-control">
+              <Text className="class-analysis-picker-label">选择年级</Text>
+              <Select
+                allowClear={gradeOptions.length > 1}
+                placeholder={gradeOptions.length > 1 ? '请选择年级' : '系统自动匹配年级'}
+                className="class-analysis-picker"
+                value={selectedGrade}
+                onChange={setSelectedGrade}
+                options={gradeOptions.map((grade) => ({ value: grade, label: grade }))}
+                disabled={gradeOptions.length <= 1}
+              />
+            </div>
+          </div>
+
+          {gradeSelectionRequired && (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="请选择年级查看班级分析"
+              description="当前考试覆盖多个年级。先选择年级后，再查看平均分排名、四率一分和班级深度分析。"
+            />
+          )}
+
           <Row gutter={16} className="class-analysis-rank-grid">
             <Col xs={24} lg={12}>
               <Card
@@ -376,20 +465,26 @@ export default function ClassAnalysis({ examId }) {
                   />
                 )}
               >
-                {selectedRankSubjectId && subjectRankData.length > 0 ? (
+                {canRenderGradeScopedContent && selectedRankSubjectId && subjectRankData.length > 0 ? (
                   <RankListChart data={subjectRankData} />
                 ) : (
-                  <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  <Empty
+                    description={gradeSelectionRequired ? '请选择年级查看班级分析' : '暂无数据'}
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  />
                 )}
               </Card>
             </Col>
 
             <Col xs={24} lg={12}>
               <Card className="class-analysis-panel-card class-analysis-chart-card" title="班级平均分排名" size="small">
-                {totalRankData.length > 0 ? (
+                {canRenderGradeScopedContent && totalRankData.length > 0 ? (
                   <RankListChart data={totalRankData} />
                 ) : (
-                  <Empty description="暂无数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  <Empty
+                    description={gradeSelectionRequired ? '请选择年级查看班级分析' : '暂无数据'}
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  />
                 )}
               </Card>
             </Col>
@@ -413,13 +508,13 @@ export default function ClassAnalysis({ examId }) {
                 )}
               >
                 <Table
-                  dataSource={threeRateRankData}
+                  dataSource={canRenderGradeScopedContent ? threeRateRankData : []}
                   columns={threeRateColumns}
                   rowKey="class_id"
                   size="small"
                   pagination={false}
                   scroll={{ x: 'max-content' }}
-                  locale={{ emptyText: '暂无数据' }}
+                  locale={{ emptyText: gradeSelectionRequired ? '请选择年级查看班级分析' : '暂无数据' }}
                 />
               </Card>
             </Col>
@@ -438,12 +533,13 @@ export default function ClassAnalysis({ examId }) {
                 className="class-analysis-picker"
                 value={classId}
                 onChange={setClassId}
-                options={classes.map((item) => ({ value: item.id, label: item.name }))}
+                options={filteredClasses.map((item) => ({ value: item.id, label: item.name }))}
+                disabled={gradeSelectionRequired}
               />
             </div>
           </div>
 
-          {classId && (
+          {canRenderGradeScopedContent && classId && (
             <>
               <Spin spinning={loading}>
                 <Row gutter={[16, 16]}>
@@ -508,9 +604,12 @@ export default function ClassAnalysis({ examId }) {
               </Spin>
             </>
           )}
-          {!classId && (
+          {(!canRenderGradeScopedContent || !classId) && (
             <div className="class-analysis-empty-prompt">
-              <Empty description="请选择班级查看深度分析" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              <Empty
+                description={gradeSelectionRequired ? '请选择年级查看班级分析' : '请选择班级查看深度分析'}
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+              />
             </div>
           )}
         </>

@@ -1,4 +1,40 @@
 const WEEKDAY_COUNT = 5
+const CHINESE_DIGITS = {
+  一: 1,
+  二: 2,
+  三: 3,
+  四: 4,
+  五: 5,
+  六: 6,
+  七: 7,
+  八: 8,
+  九: 9,
+  十: 10,
+}
+
+function parseChineseNumber(value) {
+  if (!value) return null
+  if (value === '十') return 10
+  if (value.includes('十')) {
+    const [left, right] = value.split('十')
+    const tens = left ? CHINESE_DIGITS[left] : 1
+    const ones = right ? CHINESE_DIGITS[right] : 0
+    return tens && ones !== undefined ? tens * 10 + ones : null
+  }
+  return CHINESE_DIGITS[value] || null
+}
+
+function periodKey(name) {
+  const text = String(name || '').replace(/\s+/g, '')
+  const digitMatch = text.match(/第?(\d+)节/)
+  if (digitMatch) return `lesson-${Number(digitMatch[1])}`
+  const chineseMatch = text.match(/第?([一二三四五六七八九十]+)节/)
+  if (chineseMatch) {
+    const parsed = parseChineseNumber(chineseMatch[1])
+    if (parsed) return `lesson-${parsed}`
+  }
+  return text
+}
 
 function countFilledRows(items, predicate) {
   return (items || []).filter((item) => predicate(item || {})).length
@@ -34,14 +70,27 @@ export function formatForbiddenPeriods(periods) {
     .join(',')
 }
 
-export function buildTimetableRows(items) {
-  const periodIds = [...new Set((items || []).map((item) => item.period_id).filter(Number.isFinite))].sort((left, right) => left - right)
+export function buildTimetableRows(items = [], periods = []) {
+  const periodList = periods.length > 0
+    ? periods
+    : [...new Set(items.map((item) => item.period_id).filter(Number.isFinite))]
+      .sort((left, right) => left - right)
+      .map((periodId) => {
+        const matchedItem = items.find((item) => item.period_id === periodId)
+        return {
+          id: periodId,
+          name: matchedItem?.period_name || `第${periodId}节`,
+        }
+      })
 
-  return periodIds.map((periodId) => {
+  return periodList.map((period) => {
+    const periodId = period.id
+    const periodLabel = period.name || `第${periodId}节`
+    const currentPeriodKey = periodKey(periodLabel)
     const row = {
       key: String(periodId),
       period_id: periodId,
-      periodLabel: `第${periodId}节`,
+      periodLabel,
       day_1: '',
       day_2: '',
       day_3: '',
@@ -50,7 +99,8 @@ export function buildTimetableRows(items) {
     }
 
     for (let weekday = 1; weekday <= WEEKDAY_COUNT; weekday += 1) {
-      const item = (items || []).find((entry) => entry.period_id === periodId && entry.weekday === weekday)
+      const item = items.find((entry) => entry.period_id === periodId && entry.weekday === weekday)
+        || items.find((entry) => entry.weekday === weekday && periodKey(entry.period_name) === currentPeriodKey)
       row[`day_${weekday}`] = item ? `${item.subject_name || '-'} / ${item.teacher_name || '-'}` : ''
     }
 
@@ -129,4 +179,42 @@ export function buildTaskSnapshot({ task, currentDraft, draftItems = [] }) {
     progress: 0,
     readyToPublish: false,
   }
+}
+
+export function summarizeImportIssues(items = []) {
+  return (items || []).reduce(
+    (summary, item) => {
+      const flags = Array.isArray(item?.issue_flags) ? item.issue_flags : []
+      summary.total += 1
+      if (flags.length) summary.unresolved += 1
+      if (flags.includes('unrecognized_subject')) summary.unrecognizedSubject += 1
+      if (flags.includes('teacher_unmatched')) summary.teacherUnmatched += 1
+      if (flags.includes('teacher_ambiguous') || item?.teacher_match_status === 'ambiguous') summary.teacherAmbiguous += 1
+      if (flags.includes('teacher_time_conflict')) summary.teacherTimeConflict += 1
+      return summary
+    },
+    {
+      total: 0,
+      unresolved: 0,
+      unrecognizedSubject: 0,
+      teacherUnmatched: 0,
+      teacherAmbiguous: 0,
+      teacherTimeConflict: 0,
+    },
+  )
+}
+
+export function canCreateImportDraft(items = []) {
+  return summarizeImportIssues(items).unresolved === 0
+}
+
+export function filterImportItemsByStatus(items = [], status = 'all') {
+  if (status === 'all') return items || []
+  return (items || []).filter((item) => {
+    const flags = Array.isArray(item?.issue_flags) ? item.issue_flags : []
+    if (status === 'unresolved') return flags.length > 0
+    if (status === 'matched') return flags.length === 0
+    if (status === 'teacher_ambiguous') return flags.includes('teacher_ambiguous') || item?.teacher_match_status === 'ambiguous'
+    return flags.includes(status)
+  })
 }

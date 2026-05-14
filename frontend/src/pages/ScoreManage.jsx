@@ -668,7 +668,7 @@ export default function ScoreManage() {
     tabItems.push({
       key: 'class-analysis',
       label: '班级成绩分析',
-      children: <ClassAnalysis examId={selectedExam} />,
+      children: <ClassAnalysis examId={selectedExam} examGrades={parseExamGrades(selectedExamInfo?.grade)} />,
     })
   }
 

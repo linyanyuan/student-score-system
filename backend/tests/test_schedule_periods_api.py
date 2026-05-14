@@ -109,6 +109,93 @@ class SchedulePeriodsApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual([item["name"] for item in response.json()], ["School A Period 1"])
 
+    def test_timetable_response_includes_period_times(self):
+        period = self.db.query(SchedulePeriod).filter(SchedulePeriod.name == "School A Period 1").first()
+        row = ClassTimetable(
+            school_id=self.school_a.id,
+            class_id=self.class_a.id,
+            teacher_id=self.teacher_a.id,
+            subject_id=self.subject_a.id,
+            period_id=period.id,
+            weekday=1,
+        )
+        self.db.add(row)
+        self.db.commit()
+
+        response = self.client.get(f"/api/timetable/class/{self.class_a.id}")
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["items"][0]
+        self.assertEqual(item["period_start_time"], "08:00")
+        self.assertEqual(item["period_end_time"], "08:45")
+
+    def test_timetable_response_prefers_current_school_period_with_same_name(self):
+        legacy_period = self.db.query(SchedulePeriod).filter(SchedulePeriod.name == "School A Period 1").first()
+        current_period = SchedulePeriod(
+            name="School A Period 1",
+            start_time="08:10",
+            end_time="08:55",
+            school_id=self.school_a.id,
+            sort_order=2,
+            is_active=True,
+            include_in_auto_schedule=True,
+        )
+        self.db.add(current_period)
+        self.db.commit()
+        self.db.refresh(current_period)
+
+        row = ClassTimetable(
+            school_id=self.school_a.id,
+            class_id=self.class_a.id,
+            teacher_id=self.teacher_a.id,
+            subject_id=self.subject_a.id,
+            period_id=legacy_period.id,
+            weekday=1,
+        )
+        self.db.add(row)
+        self.db.commit()
+
+        response = self.client.get(f"/api/timetable/class/{self.class_a.id}")
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["items"][0]
+        self.assertEqual(item["period_start_time"], "08:10")
+        self.assertEqual(item["period_end_time"], "08:55")
+
+    def test_timetable_response_matches_school_period_by_normalized_name(self):
+        legacy_period = self.db.query(SchedulePeriod).filter(SchedulePeriod.name == "School A Period 1").first()
+        legacy_period.name = "第一节"
+        current_period = SchedulePeriod(
+            name="第1节",
+            start_time="08:10",
+            end_time="08:55",
+            school_id=self.school_a.id,
+            sort_order=2,
+            is_active=True,
+            include_in_auto_schedule=True,
+        )
+        self.db.add(current_period)
+        self.db.commit()
+
+        row = ClassTimetable(
+            school_id=self.school_a.id,
+            class_id=self.class_a.id,
+            teacher_id=self.teacher_a.id,
+            subject_id=self.subject_a.id,
+            period_id=legacy_period.id,
+            weekday=1,
+        )
+        self.db.add(row)
+        self.db.commit()
+
+        response = self.client.get(f"/api/timetable/class/{self.class_a.id}")
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["items"][0]
+        self.assertEqual(item["period_name"], "第1节")
+        self.assertEqual(item["period_start_time"], "08:10")
+        self.assertEqual(item["period_end_time"], "08:55")
+
     def test_create_schedule_period_assigns_current_school(self):
         response = self.client.post(
             "/api/schedule-periods/",

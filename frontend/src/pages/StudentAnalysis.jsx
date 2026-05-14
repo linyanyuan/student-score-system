@@ -99,7 +99,7 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
           : []
       )
     } else {
-      getStudents({ page: 1, page_size: 9999 })
+      getStudents({ page: 1, page_size: 9999, scope: 'analysis' })
         .then((res) => setStudents(res.data?.items || []))
         .catch(() => setStudents([]))
     }
@@ -113,7 +113,7 @@ export default function StudentAnalysis({ initialStudentId, examId: initialExamI
       .catch(() => setSubjects([]))
 
     getExams().then((res) => setExams(res.data || [])).catch(() => setExams([]))
-    getClasses().then((res) => setClasses(res.data || [])).catch(() => setClasses([]))
+    getClasses({ scope: 'analysis' }).then((res) => setClasses(res.data || [])).catch(() => setClasses([]))
   }, [isStudentRole, user?.class_id, user?.student_id, user?.student_name, user?.student_no, user?.username])
 
   useEffect(() => {

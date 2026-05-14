@@ -4,7 +4,8 @@ import json
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import MetaData, Table
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -16,6 +17,8 @@ from app.models.lesson_plan import LessonPlan
 from app.models.lesson_plan_override import LessonPlanOverride
 from app.models.schedule_draft import ScheduleDraft
 from app.models.schedule_draft_item import ScheduleDraftItem
+from app.models.schedule_import import ScheduleImport
+from app.models.schedule_import_item import ScheduleImportItem
 from app.models.schedule_period import SchedulePeriod
 from app.models.schedule_task import ScheduleTask
 from app.models.subject import Subject
@@ -37,6 +40,12 @@ from app.schemas.scheduling import (
     PublishDraftResponse,
     ScheduleDraftItemsResponse,
     ScheduleDraftResponse,
+    ScheduleImportResponse,
+    ScheduleImportItemsResponse,
+    ScheduleImportItemResponse,
+    ScheduleImportItemUpdate,
+    ScheduleImportDraftCreateResponse,
+    ScheduleImportSummary,
     ScheduleTaskCreateResponse,
     ScheduleTaskResponse,
     TeacherConstraintBatchResponse,
@@ -53,6 +62,7 @@ from app.services.scheduling.compiler import compile_problem
 from app.services.scheduling.config_loader import decode_json_content, load_scheduling_raw_config
 from app.services.scheduling.cp_sat_solver import solve_schedule
 from app.services.scheduling.draft_service import create_draft_from_solution, serialize_draft, serialize_draft_items
+from app.services.scheduling.import_service import build_schedule_import_template, create_draft_from_import, create_import_from_upload, serialize_import_item, update_import_item
 from app.services.scheduling.publish_service import publish_draft
 from app.services.scheduling.validators import validate_compiled_problem, validate_raw_config
 
@@ -85,6 +95,32 @@ def _to_task_response(task: ScheduleTask) -> ScheduleTaskResponse:
         error=task.error,
         started_at=task.started_at,
         finished_at=task.finished_at,
+    )
+
+
+def _decode_import_summary(row: ScheduleImport) -> ScheduleImportSummary:
+    if not row.summary:
+        return ScheduleImportSummary()
+    try:
+        payload = json.loads(row.summary)
+    except json.JSONDecodeError:
+        return ScheduleImportSummary()
+    return ScheduleImportSummary(**payload)
+
+
+def _to_import_response(row: ScheduleImport) -> ScheduleImportResponse:
+    return ScheduleImportResponse(
+        id=row.id,
+        grade=row.grade,
+        scope=row.scope,
+        class_id=row.class_id,
+        source_type=row.source_type,
+        status=row.status,
+        message=row.message,
+        error=row.error,
+        summary=_decode_import_summary(row),
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 
@@ -275,6 +311,88 @@ def save_locks(req: TimetableLockBatchSaveRequest, current_user: User = Depends(
         )
     db.commit()
     return TimetableLockBatchResponse(grade=req.grade, items=req.items)
+
+
+@router.get("/imports/template")
+def download_schedule_import_template(current_user: User = Depends(require_school_admin)):
+    _require_school_id(current_user)
+    template = build_schedule_import_template()
+    headers = {"Content-Disposition": 'attachment; filename="schedule-import-template.xlsx"'}
+    return StreamingResponse(
+        template,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
+
+@router.get("/imports/{import_id}", response_model=ScheduleImportResponse)
+def get_schedule_import(import_id: int, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    row = db.query(ScheduleImport).filter(ScheduleImport.id == import_id, ScheduleImport.school_id == school_id).first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="import not found")
+    return _to_import_response(row)
+
+
+@router.post("/imports", response_model=ScheduleImportResponse, status_code=201)
+def create_schedule_import(
+    grade: str = Form(...),
+    scope: str = Form(...),
+    class_id: int | None = Form(None),
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_school_admin),
+    db: Session = Depends(get_db),
+):
+    school_id = _require_school_id(current_user)
+    row = create_import_from_upload(
+        db,
+        school_id=school_id,
+        grade=grade,
+        scope=scope,
+        class_id=class_id,
+        file=file,
+        created_by=current_user.id,
+    )
+    return _to_import_response(row)
+
+
+@router.get("/imports/{import_id}/items", response_model=ScheduleImportItemsResponse)
+def get_schedule_import_items(import_id: int, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    row = db.query(ScheduleImport).filter(ScheduleImport.id == import_id, ScheduleImport.school_id == school_id).first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="import not found")
+    items = db.query(ScheduleImportItem).filter(ScheduleImportItem.import_id == row.id).order_by(ScheduleImportItem.class_id, ScheduleImportItem.weekday, ScheduleImportItem.period_id).all()
+    return ScheduleImportItemsResponse(items=[ScheduleImportItemResponse(**serialize_import_item(db, item)) for item in items])
+
+
+@router.patch("/imports/{import_id}/items/{item_id}", response_model=ScheduleImportItemResponse)
+def patch_schedule_import_item(
+    import_id: int,
+    item_id: int,
+    req: ScheduleImportItemUpdate,
+    current_user: User = Depends(require_school_admin),
+    db: Session = Depends(get_db),
+):
+    school_id = _require_school_id(current_user)
+    row = db.query(ScheduleImport).filter(ScheduleImport.id == import_id, ScheduleImport.school_id == school_id).first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="import not found")
+    item = db.query(ScheduleImportItem).filter(ScheduleImportItem.id == item_id, ScheduleImportItem.import_id == row.id).first()
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="import item not found")
+    item = update_import_item(db, item, subject_id=req.subject_id, teacher_id=req.teacher_id, is_empty=req.is_empty)
+    return ScheduleImportItemResponse(**serialize_import_item(db, item))
+
+
+@router.post("/imports/{import_id}/draft", response_model=ScheduleImportDraftCreateResponse, status_code=201)
+def create_schedule_import_draft(import_id: int, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    row = db.query(ScheduleImport).filter(ScheduleImport.id == import_id, ScheduleImport.school_id == school_id).first()
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="import not found")
+    draft = create_draft_from_import(db, row, created_by=current_user.id)
+    return ScheduleImportDraftCreateResponse(import_id=row.id, draft_id=draft.id, status=row.status)
 
 
 def _run_draft_task(task_id: int, session_factory: sessionmaker = SessionLocal) -> None:

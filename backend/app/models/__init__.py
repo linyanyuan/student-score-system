@@ -20,7 +20,12 @@ from app.models.class_timetable import ClassTimetable
 from app.models.schedule_task import ScheduleTask
 from app.models.schedule_draft import ScheduleDraft
 from app.models.schedule_draft_item import ScheduleDraftItem
+from app.models.schedule_import import ScheduleImport
+from app.models.schedule_import_item import ScheduleImportItem
 from app.models.memo import Memo
+from app.models.school_notice import SchoolNotice
+from app.models.school_notice_audience import SchoolNoticeAudience
+from app.models.school_notice_recipient import SchoolNoticeRecipient
 from app.models.daily_quote import DailyQuote
 from app.models.seat_arrangement import SeatArrangement
 from app.models.score_full_score_config import ScoreFullScoreConfig
@@ -31,5 +36,6 @@ __all__ = [
     "SchedulePeriod", "TeacherSchedule", "TeacherClassSubject", "LessonPlan",
     "LessonPlanOverride", "TeacherTimeConstraint", "TimetableLock",
     "ClassTimetable", "ScheduleTask", "ScheduleDraft", "ScheduleDraftItem",
-    "Memo", "DailyQuote", "SeatArrangement", "ScoreFullScoreConfig"
+    "Memo", "SchoolNotice", "SchoolNoticeAudience", "SchoolNoticeRecipient",
+    "DailyQuote", "SeatArrangement", "ScoreFullScoreConfig"
 ]
