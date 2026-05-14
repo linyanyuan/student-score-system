@@ -169,10 +169,73 @@ class PublishDraftResponse(BaseModel):
     rows: int
 
 
+class ScheduleImportSummary(BaseModel):
+    total_slots: int = 0
+    recognized_slots: int = 0
+    unrecognized_subject_slots: int = 0
+    teacher_unmatched_slots: int = 0
+    teacher_ambiguous_slots: int = 0
+    teacher_time_conflict_slots: int = 0
+    manually_fixed_slots: int = 0
+
+
+class ScheduleImportResponse(BaseModel):
+    id: int
+    grade: str
+    scope: str
+    class_id: int | None = None
+    source_type: str
+    status: str
+    message: str | None = None
+    error: str | None = None
+    summary: ScheduleImportSummary = Field(default_factory=ScheduleImportSummary)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ScheduleImportItemResponse(BaseModel):
+    id: int
+    class_id: int
+    class_name: str | None = None
+    weekday: int
+    period_id: int
+    period_name: str | None = None
+    subject_id: int | None = None
+    subject_name: str | None = None
+    recognized_subject_name: str | None = None
+    teacher_id: int | None = None
+    teacher_name: str | None = None
+    teacher_match_status: str
+    teacher_match_source: str
+    teacher_candidates: list[dict[str, Any]] = Field(default_factory=list)
+    confidence: float | None = None
+    issue_flags: list[str] = Field(default_factory=list)
+    conflict_items: list[dict[str, Any]] = Field(default_factory=list)
+    is_empty: bool = False
+
+
+class ScheduleImportItemsResponse(BaseModel):
+    items: list[ScheduleImportItemResponse] = Field(default_factory=list)
+
+
+class ScheduleImportItemUpdate(BaseModel):
+    subject_id: int | None = None
+    teacher_id: int | None = None
+    is_empty: bool | None = None
+
+
+class ScheduleImportDraftCreateResponse(BaseModel):
+    import_id: int
+    draft_id: int
+    status: str
+
+
 class TimetableItem(BaseModel):
     weekday: int
     period_id: int
     period_name: str | None = None
+    period_start_time: str | None = None
+    period_end_time: str | None = None
     class_id: int
     class_name: str | None = None
     subject_id: int

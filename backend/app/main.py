@@ -6,7 +6,7 @@ from app.database import Base, engine, ensure_sqlite_user_schema_compat
 from app.routers import auth
 from app.routers import classes, subjects, teacher_classes, custom_fields, students
 from app.routers import exams, scores, analysis
-from app.routers import schedule_periods, teacher_schedules, memos, daily_quote, scheduling, timetable
+from app.routers import schedule_periods, teacher_schedules, memos, daily_quote, scheduling, timetable, overview, school_notices
 from app.routers import seats, schools, accounts
 
 Base.metadata.create_all(bind=engine)
@@ -49,3 +49,5 @@ app.include_router(schools.router)
 app.include_router(accounts.router)
 app.include_router(scheduling.router)
 app.include_router(timetable.router)
+app.include_router(overview.router)
+app.include_router(school_notices.router)

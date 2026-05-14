@@ -20,6 +20,7 @@ from app.models.student import Student
 from app.models.class_ import Class
 from app.models.exam import Exam
 from app.models.subject import Subject
+from app.models.teacher_class import TeacherClass
 from app.models.total_rank import TotalRank
 from app.models.score_full_score_config import ScoreFullScoreConfig
 from app.models.user import User
@@ -76,6 +77,44 @@ def _teacher_exam_grade_class_ids(current_user: User, db: Session, exam_id: int)
     ]
 
 
+def _teacher_bound_grade_class_ids(current_user: User, db: Session) -> list[int]:
+    if current_user.role != "teacher" or current_user.school_id is None:
+        return []
+    bound_grades = {
+        row[0]
+        for row in db.query(Class.grade)
+        .join(TeacherClass, TeacherClass.class_id == Class.id)
+        .filter(
+            TeacherClass.teacher_id == current_user.id,
+            Class.school_id == current_user.school_id,
+        )
+        .all()
+        if row[0]
+    }
+    if not bound_grades:
+        return []
+    return [
+        row[0]
+        for row in db.query(Class.id)
+        .filter(Class.school_id == current_user.school_id, Class.grade.in_(bound_grades))
+        .all()
+    ]
+
+
+def _analysis_accessible_class_ids(
+    current_user: User,
+    db: Session,
+    exam_id: int | None = None,
+) -> list[int] | None:
+    if current_user.role == "teacher":
+        if exam_id is not None:
+            exam_scoped = _teacher_exam_grade_class_ids(current_user, db, exam_id)
+            if exam_scoped:
+                return exam_scoped
+        return _teacher_bound_grade_class_ids(current_user, db)
+    return get_accessible_class_ids(current_user, db)
+
+
 def _check_student_permission(student: Student, current_user: User, db: Session):
     if current_user.role == "student":
         # Prefer explicit binding by student_id; fallback to legacy username matching.
@@ -86,7 +125,7 @@ def _check_student_permission(student: Student, current_user: User, db: Session)
         if student.student_no != current_user.username:
             raise HTTPException(status_code=403, detail="无权访问该学生数据")
     elif current_user.role == "teacher":
-        accessible = get_accessible_class_ids(current_user, db)
+        accessible = _analysis_accessible_class_ids(current_user, db)
         if accessible is not None and student.class_id not in accessible:
             raise HTTPException(status_code=403, detail="无权访问该学生数据")
 
@@ -101,17 +140,7 @@ def _check_class_permission(class_id: int, exam_id: int, current_user: User, db:
         if bound_student.class_id != class_id:
             raise HTTPException(status_code=403, detail="无权访问该班级")
         return
-    if current_user.role == "student":
-        if current_user.student_id is None:
-            raise HTTPException(status_code=400, detail="student account is not bound to a student profile")
-        bound_student = db.query(Student).filter(Student.id == current_user.student_id).first()
-        if bound_student is None:
-            raise HTTPException(status_code=400, detail="bound student profile does not exist")
-        accessible = [bound_student.class_id]
-    elif current_user.role == "teacher":
-        accessible = _teacher_exam_grade_class_ids(current_user, db, exam_id)
-    else:
-        accessible = get_accessible_class_ids(current_user, db)
+    accessible = _analysis_accessible_class_ids(current_user, db, exam_id=exam_id)
     if accessible is not None and class_id not in accessible:
         raise HTTPException(status_code=403, detail="无权访问该班级")
 
@@ -425,10 +454,8 @@ def exam_subject_three_rates_one_score_rank(
         if bound_student is None:
             raise HTTPException(status_code=400, detail="bound student profile does not exist")
         accessible = [bound_student.class_id]
-    elif current_user.role == "teacher":
-        accessible = _teacher_exam_grade_class_ids(current_user, db, exam_id)
     else:
-        accessible = get_accessible_class_ids(current_user, db)
+        accessible = _analysis_accessible_class_ids(current_user, db, exam_id=exam_id)
     school_id = get_user_school_id(current_user)
 
     class_query = db.query(Class.id, Class.name, Class.grade, Class.school_id)
@@ -547,10 +574,8 @@ def exam_total_three_rates_one_score_rank(
         if bound_student is None:
             raise HTTPException(status_code=400, detail="bound student profile does not exist")
         accessible = [bound_student.class_id]
-    elif current_user.role == "teacher":
-        accessible = _teacher_exam_grade_class_ids(current_user, db, exam_id)
     else:
-        accessible = get_accessible_class_ids(current_user, db)
+        accessible = _analysis_accessible_class_ids(current_user, db, exam_id=exam_id)
     school_id = get_user_school_id(current_user)
 
     class_query = db.query(Class.id, Class.name, Class.grade, Class.school_id)
@@ -966,10 +991,8 @@ def classes_rank(
         if bound_student is None:
             raise HTTPException(status_code=400, detail="bound student profile does not exist")
         accessible = [bound_student.class_id]
-    elif current_user.role == "teacher":
-        accessible = _teacher_exam_grade_class_ids(current_user, db, exam_id)
     else:
-        accessible = get_accessible_class_ids(current_user, db)
+        accessible = _analysis_accessible_class_ids(current_user, db, exam_id=exam_id)
     school_id = get_user_school_id(current_user)
 
     query = db.query(Class)
@@ -1116,10 +1139,7 @@ def class_three_rates_one_score(
         target_class.school_id if target_class else get_user_school_id(current_user),
     )
 
-    if current_user.role == "teacher":
-        accessible = _teacher_exam_grade_class_ids(current_user, db, exam_id)
-    else:
-        accessible = get_accessible_class_ids(current_user, db)
+    accessible = _analysis_accessible_class_ids(current_user, db, exam_id=exam_id)
     school_id = get_user_school_id(current_user)
 
     class_query = db.query(Class.id)

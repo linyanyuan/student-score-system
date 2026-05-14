@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RoleEnum(str, Enum):
@@ -45,3 +45,17 @@ class UserResponse(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+class PasswordHelpAccount(BaseModel):
+    username: str
+    role: str
+    school_id: int | None = None
+    password_hint: str | None = None
+
+
+class PasswordHelpResponse(BaseModel):
+    kind: str
+    message: str
+    account: PasswordHelpAccount | None = None
+    admins: list[PasswordHelpAccount] = Field(default_factory=list)

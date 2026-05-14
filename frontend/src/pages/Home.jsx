@@ -11,27 +11,10 @@ import dayjs from 'dayjs'
 import WorkspaceMetricCard from '../components/workspace/WorkspaceMetricCard'
 import WorkspacePageHeader from '../components/workspace/WorkspacePageHeader'
 import WorkspaceSectionCard from '../components/workspace/WorkspaceSectionCard'
-import { buildSchedulePeriodPayload, isCreatingPeriod } from './homePeriodUtils'
+import { buildSchedulePeriodPayload, buildTimetableRows, isCreatingPeriod } from './homePeriodUtils'
 
 const { Paragraph, Text } = Typography
 const { TextArea } = Input
-
-// ── 课表展示工具函数 ──────────────────────────────────────────────────────────
-function buildTimetableRows(items, periods) {
-  // periods: [{id, name, start_time, end_time}]
-  // items: [{weekday, period_id, period_name, subject_name, class_name, teacher_name}]
-  const periodList = periods.length > 0
-    ? periods
-    : Array.from(new Set(items.map(i => i.period_id))).sort((a, b) => a - b)
-        .map(id => { const it = items.find(i => i.period_id === id); return { id, name: it?.period_name || `第${id}节`, start_time: '', end_time: '' } })
-  return periodList.map(p => {
-    const row = { key: String(p.id), period: p.name, time: p.start_time && p.end_time ? `${p.start_time}-${p.end_time}` : '' }
-    for (let day = 1; day <= 5; day++) {
-      row[`day${day}`] = items.find(i => i.period_id === p.id && i.weekday === day) || null
-    }
-    return row
-  })
-}
 
 const DAY_NAMES = ['周一', '周二', '周三', '周四', '周五']
 const DAY_COLORS = ['#eff6ff', '#f0fdf4', '#fdf4ff', '#fff7ed', '#fafaf9']

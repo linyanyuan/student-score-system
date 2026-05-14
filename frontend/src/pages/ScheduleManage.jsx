@@ -4,18 +4,23 @@ import {
   Button,
   Card,
   Col,
+  Divider,
+  Drawer,
   Empty,
   Input,
   InputNumber,
+  Modal,
   Progress,
   Row,
   Select,
   Space,
   Spin,
+  Steps,
   Table,
   Tabs,
   Tag,
   Typography,
+  Upload,
   message,
 } from 'antd'
 import {
@@ -23,6 +28,7 @@ import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   EyeOutlined,
+  FileExcelOutlined,
   LockOutlined,
   ReloadOutlined,
   RobotOutlined,
@@ -30,6 +36,7 @@ import {
   SendOutlined,
   TableOutlined,
   ThunderboltOutlined,
+  UploadOutlined,
   WarningOutlined,
 } from '@ant-design/icons'
 import { getClasses } from '../api/class'
@@ -37,6 +44,9 @@ import { getSchedulePeriods } from '../api/schedule'
 import { getSubjects } from '../api/subject'
 import {
   createAutoScheduleTask,
+  createScheduleImport,
+  createScheduleImportDraft,
+  downloadScheduleImportTemplate,
   getClassTimetable,
   getLessonPlan,
   getLessonPlanOverrides,
@@ -44,9 +54,11 @@ import {
   getScheduleDraftItems,
   getScheduleTask,
   getScheduleTeachers,
+  getScheduleImportItems,
   getTeacherConstraints,
   getTeachingArrangement,
   getTimetableLocks,
+  patchScheduleImportItem,
   publishScheduleDraft,
   saveLessonPlan,
   saveLessonPlanOverrides,
@@ -59,8 +71,11 @@ import {
   buildSummaryCounts,
   buildTaskSnapshot,
   buildTimetableRows,
+  canCreateImportDraft,
+  filterImportItemsByStatus,
   formatForbiddenPeriods,
   parseForbiddenPeriods,
+  summarizeImportIssues,
 } from './scheduleManageUtils'
 
 const { Title, Text, Paragraph } = Typography
@@ -77,6 +92,35 @@ const WEEKDAY_OPTIONS = [
   { label: '周三', value: 3 },
   { label: '周四', value: 4 },
   { label: '周五', value: 5 },
+]
+
+const IMPORT_STEPS = [
+  { title: '选择范围' },
+  { title: '上传文件' },
+  { title: '识别核对' },
+  { title: '生成草案' },
+]
+
+const IMPORT_SCOPE_OPTIONS = [
+  { label: '年级总课表', value: 'grade' },
+  { label: '单班课表', value: 'class' },
+]
+
+const IMPORT_FLAG_LABELS = {
+  unrecognized_subject: { color: 'error', label: '未识别科目' },
+  teacher_unmatched: { color: 'error', label: '未匹配教师' },
+  teacher_ambiguous: { color: 'warning', label: '教师待确认' },
+  teacher_time_conflict: { color: 'error', label: '教师时间冲突' },
+}
+
+const IMPORT_STATUS_FILTER_OPTIONS = [
+  { label: '全部', value: 'all' },
+  { label: '待处理', value: 'unresolved' },
+  { label: '未识别科目', value: 'unrecognized_subject' },
+  { label: '未匹配教师', value: 'teacher_unmatched' },
+  { label: '教师待确认', value: 'teacher_ambiguous' },
+  { label: '教师时间冲突', value: 'teacher_time_conflict' },
+  { label: '已匹配', value: 'matched' },
 ]
 
 const GRADE_RANK = {
@@ -211,6 +255,40 @@ function SectionCard({ eyebrow, title, description, extra, children }) {
   )
 }
 
+function WorkflowTaskTile({ title, helper, status, detail, optional = false, actionLabel, onAction }) {
+  const statusTone = status === 'done'
+    ? { background: 'rgba(24, 121, 78, 0.1)', color: pageTokens.success, label: '已完成' }
+    : optional
+      ? { background: 'rgba(183, 108, 7, 0.1)', color: pageTokens.warning, label: '可选优化' }
+      : { background: 'rgba(196, 83, 44, 0.1)', color: pageTokens.danger, label: '待完成' }
+
+  return (
+    <div style={{ padding: 18, borderRadius: 20, border: '1px solid rgba(177, 195, 219, 0.42)', background: 'linear-gradient(180deg, rgba(255,255,255,0.96) 0%, rgba(247,250,255,0.96) 100%)' }}>
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+          <Text style={{ color: pageTokens.ink, fontSize: 16, fontWeight: 600 }}>{title}</Text>
+          <Tag bordered={false} style={{ borderRadius: 999, background: statusTone.background, color: statusTone.color }}>{statusTone.label}</Tag>
+        </Space>
+        <Text style={{ color: pageTokens.muted }}>{helper}</Text>
+        <Text style={{ color: pageTokens.ink, minHeight: 22 }}>{detail}</Text>
+        <Button type="link" style={{ padding: 0 }} onClick={onAction}>{actionLabel}</Button>
+      </Space>
+    </div>
+  )
+}
+
+function ImportIssueTags({ flags = [] }) {
+  if (!flags.length) return <Tag color="success">已匹配</Tag>
+  return (
+    <Space size={[4, 4]} wrap>
+      {flags.map((flag) => {
+        const config = IMPORT_FLAG_LABELS[flag] || { color: 'default', label: flag }
+        return <Tag key={flag} color={config.color}>{config.label}</Tag>
+      })}
+    </Space>
+  )
+}
+
 export default function ScheduleManage() {
   const [classes, setClasses] = useState([])
   const [subjects, setSubjects] = useState([])
@@ -237,7 +315,24 @@ export default function ScheduleManage() {
   const [publishLoading, setPublishLoading] = useState(false)
   const [pageError, setPageError] = useState('')
   const [dirty, setDirty] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importStep, setImportStep] = useState(0)
+  const [importGrade, setImportGrade] = useState('')
+  const [importScope, setImportScope] = useState('class')
+  const [importClassId, setImportClassId] = useState(undefined)
+  const [importFile, setImportFile] = useState(null)
+  const [importTask, setImportTask] = useState(null)
+  const [importItems, setImportItems] = useState([])
+  const [importStatusFilter, setImportStatusFilter] = useState('all')
+  const [importLoading, setImportLoading] = useState(false)
+  const [importDraftId, setImportDraftId] = useState(null)
+  const [editingImportItem, setEditingImportItem] = useState(null)
   const pollingRef = useRef(null)
+  const reviewSectionRef = useRef(null)
+  const draftSectionRef = useRef(null)
+  const pendingDraftScrollRef = useRef(false)
+  const configWorkspaceRef = useRef(null)
+  const [reviewTab, setReviewTab] = useState('draft')
 
   const gradeOptions = useMemo(
     () =>
@@ -250,12 +345,26 @@ export default function ScheduleManage() {
   const summaryCounts = buildSummaryCounts({ plans, arrangements, overrides, teacherConstraints, locks })
   const configWarnings = buildConfigWarnings({ plans, arrangements, dirty })
   const taskSnapshot = buildTaskSnapshot({ task, currentDraft, draftItems })
-  const draftRows = buildTimetableRows(draftItems)
+  const draftRows = buildTimetableRows(draftItems, periods)
   const gradeClasses = classes.filter((item) => item.grade === grade)
   const classOptions = gradeClasses.map((item) => ({ label: `${item.grade}-${item.name}`, value: item.id }))
+  const importGradeClasses = classes.filter((item) => item.grade === importGrade)
+  const importClassOptions = importGradeClasses.map((item) => ({ label: `${item.grade}-${item.name}`, value: item.id }))
   const subjectOptions = subjects.map((item) => ({ label: item.name, value: item.id }))
   const teacherOptions = teachers.map((item) => ({ label: item.username, value: item.id }))
   const periodOptions = periods.map((item) => ({ label: item.name, value: item.id }))
+  const importIssues = summarizeImportIssues(importItems)
+  const importReadyForDraft = canCreateImportDraft(importItems)
+  const filteredImportItems = useMemo(() => filterImportItemsByStatus(importItems, importStatusFilter), [importItems, importStatusFilter])
+  const coreConfigReady = summaryCounts.plans > 0 && summaryCounts.arrangements > 0
+  const publishChecks = currentDraft?.publish_checks || []
+  const blockingPublishChecks = publishChecks.filter((item) => item.blocking)
+  const workspaceStage = useMemo(() => {
+    if (task && !['success', 'failed'].includes(task.status)) return 'solving'
+    if (currentDraft?.status === 'published') return 'published'
+    if (currentDraftId || currentDraft) return 'review'
+    return 'prepare'
+  }, [currentDraft, currentDraftId, task])
 
   const readinessPercent = useMemo(() => {
     const checkpoints = [Boolean(grade), summaryCounts.plans > 0, summaryCounts.arrangements > 0, !dirty]
@@ -411,6 +520,20 @@ export default function ScheduleManage() {
     }
   }, [grade, reloadTick])
 
+  useEffect(() => {
+    if (importOpen || !pendingDraftScrollRef.current) return
+    const timer = window.setTimeout(() => {
+      draftSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      pendingDraftScrollRef.current = false
+    }, 180)
+    return () => window.clearTimeout(timer)
+  }, [activeTab, importOpen])
+
+  useEffect(() => {
+    if (workspaceStage === 'review') setReviewTab('draft')
+    if (workspaceStage === 'published') setReviewTab('published')
+  }, [workspaceStage])
+
   async function handleSaveAll() {
     if (!grade) return message.warning('请先选择年级')
 
@@ -547,7 +670,7 @@ export default function ScheduleManage() {
       await loadDraftBundle(currentDraftId)
       if (previewClassId) {
         const response = await getClassTimetable(previewClassId)
-        setPreviewRows(buildTimetableRows(response.data?.items || []))
+        setPreviewRows(buildTimetableRows(response.data?.items || [], periods))
       }
     } catch (error) {
       message.error(error.message || '发布草案失败')
@@ -562,11 +685,229 @@ export default function ScheduleManage() {
 
     try {
       const response = await getClassTimetable(classId)
-      setPreviewRows(buildTimetableRows(response.data?.items || []))
+      setPreviewRows(buildTimetableRows(response.data?.items || [], periods))
     } catch (error) {
       message.error(error.message || '正式课表预览加载失败')
     }
   }
+
+  function resetImportWizard() {
+    const nextImportGrade = grade || gradeOptions[0]?.value || ''
+    const nextImportClassId = classes.find((item) => item.grade === nextImportGrade)?.id
+    setImportStep(0)
+    setImportGrade(nextImportGrade)
+    setImportScope('class')
+    setImportClassId(nextImportClassId)
+    setImportFile(null)
+    setImportTask(null)
+    setImportItems([])
+    setImportStatusFilter('all')
+    setImportDraftId(null)
+    setEditingImportItem(null)
+  }
+
+  function handleImportGradeChange(value) {
+    const nextClassId = classes.find((item) => item.grade === value)?.id
+    setImportGrade(value)
+    setImportClassId(nextClassId)
+  }
+
+  async function hasPublishedTimetableForGrade() {
+    const checks = await Promise.all(
+      importGradeClasses.map(async (classItem) => {
+        const response = await getClassTimetable(classItem.id)
+        return Boolean(response.data?.items?.length)
+      }),
+    )
+    return checks.some(Boolean)
+  }
+
+  async function handleOpenImportWizard() {
+    if (!gradeOptions.length) return message.warning('当前学校没有可导入的年级')
+    resetImportWizard()
+    setImportOpen(true)
+  }
+
+  async function refreshImportItems(importId) {
+    const response = await getScheduleImportItems(importId)
+    const nextItems = response.data?.items || []
+    setImportItems(nextItems)
+    return nextItems
+  }
+
+  async function handleUploadImport() {
+    if (!importGrade) return message.warning('请选择目标年级')
+    if (!importGradeClasses.length) return message.warning('当前年级没有可导入的班级')
+    if (importScope === 'class' && !importClassId) return message.warning('请选择班级')
+    if (!importFile) return message.warning('请先选择课表文件')
+
+    try {
+      if (await hasPublishedTimetableForGrade()) {
+        const confirmed = await new Promise((resolve) => {
+          Modal.confirm({
+            title: '当前年级已有正式课表',
+            content: '上传新课表只会生成待确认草案，不会立即覆盖正式课表。是否继续？',
+            okText: '继续上传',
+            cancelText: '取消',
+            onOk: () => resolve(true),
+            onCancel: () => resolve(false),
+          })
+        })
+        if (!confirmed) return
+      }
+    } catch (error) {
+      return message.error(error.message || '检查已有课表失败')
+    }
+
+    const formData = new FormData()
+    formData.append('grade', importGrade)
+    formData.append('scope', importScope)
+    if (importScope === 'class') formData.append('class_id', String(importClassId))
+    formData.append('file', importFile)
+
+    setImportLoading(true)
+    try {
+      const response = await createScheduleImport(formData)
+      const task = response.data
+      setImportTask(task)
+      if (task?.status === 'failed') {
+        message.error(task.error || task.message || '课表识别失败')
+        return
+      }
+      const nextItems = await refreshImportItems(task.id)
+      setImportStatusFilter(summarizeImportIssues(nextItems).unresolved ? 'unresolved' : 'all')
+      setImportStep(2)
+      message.success('课表已识别，请核对后生成待确认草案')
+    } catch (error) {
+      message.error(error.message || '上传已有课表失败')
+    } finally {
+      setImportLoading(false)
+    }
+  }
+
+  async function handleDownloadImportTemplate() {
+    try {
+      const response = await downloadScheduleImportTemplate()
+      const url = window.URL.createObjectURL(new Blob([response.data]))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = '课表导入模板.xlsx'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      message.error(error.message || '下载Excel模板失败')
+    }
+  }
+
+  async function handleSaveImportItem(values) {
+    if (!importTask || !editingImportItem) return
+    setImportLoading(true)
+    try {
+      await patchScheduleImportItem(importTask.id, editingImportItem.id, values)
+      await refreshImportItems(importTask.id)
+      setEditingImportItem(null)
+      message.success('课位已更新')
+    } catch (error) {
+      message.error(error.message || '课位更新失败')
+    } finally {
+      setImportLoading(false)
+    }
+  }
+
+  async function handleCreateImportDraft() {
+    if (!importTask) return message.warning('请先上传并核对课表')
+    if (!importReadyForDraft) return message.warning('仍有未处理课位，不能生成待确认草案')
+
+    setImportLoading(true)
+    try {
+      const response = await createScheduleImportDraft(importTask.id)
+      const draftId = response.data?.draft_id
+      setImportDraftId(draftId)
+      setCurrentDraftId(draftId)
+      if (importGrade && importGrade !== grade) setGrade(importGrade)
+      if (draftId) await loadDraftBundle(draftId)
+      setTask({ status: 'success', progress: 100, message: '上传课表识别生成待确认草案', result: { draft_id: draftId } })
+      setActiveTab('draft')
+      setImportStep(3)
+      message.success('已生成待确认草案，正式课表尚未变更')
+    } catch (error) {
+      message.error(error.message || '生成待确认草案失败')
+    } finally {
+      setImportLoading(false)
+    }
+  }
+
+  function handleViewImportDraft() {
+    pendingDraftScrollRef.current = true
+    setReviewTab('draft')
+    setActiveTab('draft')
+    setImportOpen(false)
+  }
+
+  function scrollToSection(ref) {
+    ref?.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  function openConfigTab(tabKey) {
+    setActiveTab(tabKey)
+    scrollToSection(configWorkspaceRef)
+  }
+
+  function handlePrimaryStageAction() {
+    if (!grade) {
+      message.warning('请先选择年级')
+      return
+    }
+    if (workspaceStage === 'prepare') {
+      if (!summaryCounts.plans) {
+        openConfigTab('plans')
+        return
+      }
+      if (!summaryCounts.arrangements) {
+        openConfigTab('arrangements')
+        return
+      }
+      if (dirty) {
+        handleSaveAll()
+        return
+      }
+      handleSolve()
+      return
+    }
+    if (workspaceStage === 'review') {
+      if (canPublishCurrentDraft) {
+        handlePublishDraft()
+        return
+      }
+      scrollToSection(draftSectionRef)
+      return
+    }
+    if (workspaceStage === 'published') {
+      setReviewTab('published')
+      scrollToSection(reviewSectionRef)
+    }
+  }
+
+  const importItemColumns = [
+    { title: '班级', dataIndex: 'class_name', width: 100, render: (value) => value || '-' },
+    { title: '星期', dataIndex: 'weekday', width: 90, render: (value) => WEEKDAY_OPTIONS.find((item) => item.value === value)?.label || value },
+    { title: '节次', dataIndex: 'period_name', width: 100, render: (value, record) => value || `第${record.period_id}节` },
+    {
+      title: '识别结果',
+      dataIndex: 'recognized_subject_name',
+      render: (_, record) => (
+        <Space direction="vertical" size={2}>
+          <Text strong>{record.subject_name || record.recognized_subject_name || '未识别'}</Text>
+          <Text type="secondary">{record.teacher_name || '未匹配教师'}</Text>
+        </Space>
+      ),
+    },
+    { title: '状态', dataIndex: 'issue_flags', width: 190, render: (flags) => <ImportIssueTags flags={flags || []} /> },
+    { title: '匹配来源', dataIndex: 'teacher_match_source', width: 140, render: (value) => <Tag>{value || '-'}</Tag> },
+    { title: '操作', key: 'actions', width: 90, fixed: 'right', render: (_, record) => <Button type="link" onClick={() => setEditingImportItem(record)}>修正</Button> },
+  ]
 
   const timetableColumns = [
     { title: '节次', dataIndex: 'periodLabel', key: 'periodLabel', width: 90, fixed: 'left' },
@@ -701,6 +1042,47 @@ export default function ScheduleManage() {
   const lockedHits = currentDraft?.summary?.locked_hits ?? 0
   const lockedTotal = currentDraft?.summary?.locked_total ?? 0
   const riskCount = currentDraft?.summary?.risk_count ?? 0
+  const canPublishCurrentDraft = Boolean(currentDraftId && taskSnapshot.readyToPublish)
+  const stageIndex = { prepare: 0, solving: 1, review: 2, published: 3 }[workspaceStage]
+  const stageSummary = workspaceStage === 'prepare'
+    ? {
+        title: '准备排课数据',
+        description: coreConfigReady
+          ? (dirty ? '核心配置已齐全，建议先保存后再开始自动排课。' : '核心配置已就绪，可以直接开始自动排课。')
+          : `还缺核心配置：${summaryCounts.plans ? '任课安排' : '课时计划'}`,
+        status: coreConfigReady ? '可生成草案' : '待补齐配置',
+      }
+    : workspaceStage === 'solving'
+      ? {
+          title: '正在生成草案',
+          description: taskSnapshot.description,
+          status: '求解中',
+        }
+      : workspaceStage === 'review'
+        ? {
+            title: '复核草案并准备发布',
+            description: canPublishCurrentDraft ? '草案已可发布，请复核后发布为正式课表。' : '当前草案仍需复核，请先检查风险项与对比结果。',
+            status: canPublishCurrentDraft ? '待发布' : '待复核',
+          }
+        : {
+            title: '正式课表已发布',
+            description: '当前年级已有已发布的正式课表，可继续查看或再次调整生成新草案。',
+            status: '已发布',
+          }
+  const primaryActionLabel = workspaceStage === 'prepare'
+    ? (!coreConfigReady ? '补齐核心配置' : dirty ? '保存后开始排课' : '开始自动排课')
+    : workspaceStage === 'solving'
+      ? '正在生成草案...'
+      : workspaceStage === 'review'
+        ? (canPublishCurrentDraft ? '发布为正式课表' : '查看草案详情')
+        : '查看正式课表'
+  const stageStatusColor = workspaceStage === 'prepare'
+    ? (coreConfigReady ? 'blue' : 'orange')
+    : workspaceStage === 'solving'
+      ? 'processing'
+      : workspaceStage === 'review'
+        ? (canPublishCurrentDraft ? 'success' : 'warning')
+        : 'success'
 
   if (bootstrapLoading) {
     return (
@@ -739,18 +1121,34 @@ export default function ScheduleManage() {
               <div style={{ borderRadius: 24, padding: 20, background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.12)', backdropFilter: 'blur(8px)' }}>
                 <Space direction="vertical" size={16} style={{ width: '100%' }}>
                   <div>
-                    <Text style={{ color: 'rgba(255,255,255,0.72)', display: 'block', marginBottom: 8 }}>快速操作</Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.72)', display: 'block', marginBottom: 8 }}>当前流程</Text>
                     <Select style={{ width: '100%' }} placeholder="选择年级" value={grade || undefined} options={gradeOptions} onChange={setGrade} />
                   </div>
                   <Row gutter={[12, 12]}>
                     <Col xs={24} sm={12}><Button block icon={<ReloadOutlined />} loading={configLoading} onClick={() => setReloadTick((value) => value + 1)}>刷新配置</Button></Col>
-                    <Col xs={24} sm={12}><Button block icon={<SaveOutlined />} loading={saveLoading} type="primary"  onClick={handleSaveAll}>保存全部</Button></Col>
-                    <Col xs={24}><Button block size="large" type="primary" icon={<RobotOutlined />} loading={solveLoading} onClick={handleSolve}>开始自动排课</Button></Col>
+                    <Col xs={24} sm={12}><Button block icon={<SaveOutlined />} loading={saveLoading} onClick={handleSaveAll}>保存配置</Button></Col>
+                    <Col xs={24} sm={12}><Button block icon={<UploadOutlined />} disabled={!gradeOptions.length} onClick={handleOpenImportWizard}>上传已有课表</Button></Col>
+                    <Col xs={24} sm={12}>
+                      <Button
+                        block
+                        size="large"
+                        type="primary"
+                        icon={workspaceStage === 'review' || workspaceStage === 'published' ? <SendOutlined /> : <RobotOutlined />}
+                        loading={workspaceStage === 'solving' ? solveLoading : publishLoading}
+                        disabled={workspaceStage === 'solving'}
+                        onClick={handlePrimaryStageAction}
+                      >
+                        {primaryActionLabel}
+                      </Button>
+                    </Col>
                   </Row>
                   <div style={{ borderRadius: 18, padding: 14, background: 'rgba(7, 18, 34, 0.26)', color: '#ffffff' }}>
-                    <Text style={{ display: 'block', color: 'rgba(255,255,255,0.72)', marginBottom: 6 }}>推荐下一步</Text>
-                    <Text style={{ display: 'block', color: '#ffffff', fontWeight: 600 }}>{nextAction.title}</Text>
-                    <Text style={{ color: 'rgba(255,255,255,0.72)' }}>{nextAction.description}</Text>
+                    <Text style={{ display: 'block', color: 'rgba(255,255,255,0.72)', marginBottom: 6 }}>当前阶段</Text>
+                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                      <Text style={{ display: 'block', color: '#ffffff', fontWeight: 600 }}>{stageSummary.title}</Text>
+                      <Tag color={stageStatusColor}>{stageSummary.status}</Tag>
+                    </Space>
+                    <Text style={{ color: 'rgba(255,255,255,0.72)' }}>{stageSummary.description}</Text>
                   </div>
                 </Space>
               </div>
@@ -760,89 +1158,469 @@ export default function ScheduleManage() {
 
         {pageError ? <Alert type="error" showIcon message={pageError} /> : null}
 
-        <Row gutter={[16, 16]}>
-          <Col xs={24} sm={12} xl={6}><MetricCard icon={<ClockCircleOutlined />} label="课时计划" value={summaryCounts.plans} helper="已配置的年级课时规则" accent={{ background: '#e9f2ff', color: '#145fc6' }} /></Col>
-          <Col xs={24} sm={12} xl={6}><MetricCard icon={<CheckCircleOutlined />} label="任课安排" value={summaryCounts.arrangements} helper="已完成的班级-学科-教师绑定" accent={{ background: '#eaf7ef', color: '#18794e' }} /></Col>
-          <Col xs={24} sm={12} xl={6}><MetricCard icon={<SendOutlined />} label="教师约束" value={summaryCounts.teacherConstraints} helper="教师个人时间约束条目" accent={{ background: '#fff5e6', color: '#b76c07' }} /></Col>
-          <Col xs={24} sm={12} xl={6}><MetricCard icon={<LockOutlined />} label="锁定课位" value={summaryCounts.locks} helper="不允许求解器改变的课位" accent={{ background: '#fceeea', color: '#c4532c' }} /></Col>
-        </Row>
-        <SectionCard eyebrow="CONTROL NOTES" title="控制台提示" description="帮助教务老师在高频操作时快速定位关键入口。">
-            <Space direction="vertical" size={10} style={{ width: '100%' }}>
-            <Space align="start" size={10}><AppstoreOutlined style={{ color: pageTokens.primary, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>第一步：快速操作，选择年级，刷新配置进行加载已保存的排课配置(没保存过没有数据)</Text></Space>
-            <Space align="start" size={10}><AppstoreOutlined style={{ color: pageTokens.primary, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>第二步：在排课配置工作区配置核心规则：课时计划和任课安排是自动排课的核心输入，建议优先完成。教师约束和锁定课位属于精细化控制，可在基础配置稳定后逐步补齐。</Text></Space>
-            <Space align="start" size={10}><AppstoreOutlined style={{ color: pageTokens.primary, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>第三步：核心规则配置完成后建议点击快速操作中的保存全部。</Text></Space>
-            <Space align="start" size={10}><EyeOutlined style={{ color: pageTokens.success, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>第四步：生成草案后，发布前建议对照“当前草案课表”和“正式课表预览”，避免误覆盖已发布结果。</Text></Space>
-            <Space align="start" size={10}><TableOutlined style={{ color: pageTokens.danger, marginTop: 4 }} /><Text style={{ color: pageTokens.muted }}>第五步：发布当前草案，课表生成。</Text></Space>
-            </Space>
-        </SectionCard>
         <Spin spinning={configLoading}>
-          <Row gutter={[20, 20]} align="top">
-            <Col xs={24} xl={16}>
-              <SectionCard eyebrow="CONFIGURATION WORKSPACE" title="排课配置工作区" description="先配置核心规则，再补充高级约束。左侧负责输入，右侧负责复核当前草案与正式课表。">
-                <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
-              </SectionCard>
-            </Col>
-            <Col xs={24} xl={8}>
+          <Space direction="vertical" size={20} style={{ width: '100%' }}>
+            <SectionCard
+              eyebrow="WORKFLOW"
+              title="排课流程"
+              description="把准备、生成、复核、发布收敛到同一条任务流里，减少新手在页面里来回找入口。"
+              extra={<Tag color={stageStatusColor}>{stageSummary.status}</Tag>}
+            >
               <Space direction="vertical" size={18} style={{ width: '100%' }}>
-                <SectionCard
-                  eyebrow="DRAFT REVIEW"
-                  title="当前任务与草案"
-                  description="这里只展示当前任务生成的草案，不虚构历史时间线。"
-                  extra={<Button type="primary" icon={<SendOutlined />} loading={publishLoading} disabled={!currentDraftId || !taskSnapshot.readyToPublish} onClick={handlePublishDraft}>发布当前草案</Button>}
-                >
-                  <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                    <div style={{ borderRadius: 20, padding: 18, background: taskSnapshot.tone === 'success' ? 'linear-gradient(180deg, rgba(234,247,239,0.9) 0%, rgba(255,255,255,0.95) 100%)' : taskSnapshot.tone === 'danger' ? 'linear-gradient(180deg, rgba(252,238,234,0.95) 0%, rgba(255,255,255,0.95) 100%)' : 'linear-gradient(180deg, rgba(234,243,255,0.92) 0%, rgba(255,255,255,0.95) 100%)', border: '1px solid rgba(177, 195, 219, 0.42)' }}>
-                      <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                        <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
-                          <Text style={{ color: pageTokens.ink, fontWeight: 700 }}>{taskSnapshot.title}</Text>
-                          <Tag color={taskTag.color}>{taskTag.label}</Tag>
-                        </Space>
-                        <Text style={{ color: pageTokens.muted }}>{taskSnapshot.description}</Text>
-                        <Progress percent={Number(taskSnapshot.progress || 0)} status={taskSnapshot.tone === 'danger' ? 'exception' : undefined} strokeColor={taskSnapshot.tone === 'success' ? pageTokens.success : pageTokens.primary} />
-                      </Space>
-                    </div>
-                    <Row gutter={[12, 12]}>
-                      <Col span={12}><ReviewStatCard title="草案得分" value={currentDraftScore} helper="当前草案质量评分" /></Col>
-                      <Col span={12}><ReviewStatCard title="风险数" value={riskCount} helper="待复核风险条目" /></Col>
-                      <Col span={12}><ReviewStatCard title="锁定命中" value={`${lockedHits}/${lockedTotal}`} helper="锁定规则满足情况" /></Col>
-                      <Col span={12}><ReviewStatCard title="草案课位" value={draftItems.length} helper="已生成课位数量" /></Col>
-                    </Row>
-                  </Space>
-                </SectionCard>
-
-                <SectionCard eyebrow="READINESS" title="排课准备度" description="帮助你判断现在更适合继续配置、保存修改，还是直接发起求解。">
-                  <Space direction="vertical" size={14} style={{ width: '100%' }}>
-                    <Progress percent={readinessPercent} strokeColor={readinessPercent >= 100 ? pageTokens.success : pageTokens.primary} />
-                    {configWarnings.length ? <Alert type="warning" showIcon message="还有核心项待完成" description={configWarnings.join('，')} /> : <Alert type="success" showIcon message="当前核心配置已完成" description={dirty ? '建议先保存本轮修改，再发起自动排课。' : '可以直接启动自动排课，或继续补充高级约束。'} />}
-                    <div style={{ borderRadius: 18, padding: 16, background: 'linear-gradient(180deg, rgba(246,249,253,0.98) 0%, rgba(255,255,255,0.95) 100%)', border: '1px solid rgba(177, 195, 219, 0.35)' }}>
-                      <Space align="start" size={12}>
-                        <ThunderboltOutlined style={{ color: pageTokens.primary, fontSize: 18, marginTop: 2 }} />
-                        <Space direction="vertical" size={4}>
-                          <Text style={{ color: pageTokens.ink, fontWeight: 600 }}>{nextAction.title}</Text>
-                          <Text style={{ color: pageTokens.muted }}>{nextAction.description}</Text>
-                          <Button type="link" style={{ padding: 0 }} onClick={() => setActiveTab(nextAction.tab)}>打开对应模块</Button>
-                        </Space>
-                      </Space>
-                    </div>
-                  </Space>
-                </SectionCard>
-
-                <SectionCard eyebrow="DRAFT TIMETABLE" title="当前草案课表" description="用于检查求解器刚生成的结果是否符合预期。">
-                  {draftRows.length ? <Table size="small" rowKey="key" pagination={false} columns={timetableColumns} dataSource={draftRows} scroll={{ x: 900 }} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前还没有草案课表，保存配置后即可开始排课。" />}
-                </SectionCard>
-
-                <SectionCard eyebrow="PUBLISHED PREVIEW" title="正式课表预览" description="按班级查看当前已经发布的正式课表，用于对比草案与最终结果。">
-                  <Space direction="vertical" size={14} style={{ width: '100%' }}>
-                    <Select allowClear placeholder="选择班级查看正式课表" value={previewClassId} options={classOptions} onChange={handlePreviewClass} />
-                    {previewRows.length ? <Table size="small" rowKey="key" pagination={false} columns={timetableColumns} dataSource={previewRows} scroll={{ x: 900 }} /> : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前班级还没有可展示的正式课表。" />}
-                  </Space>
-                </SectionCard>
-
-                
+                <Steps
+                  current={stageIndex}
+                  items={[
+                    { title: '准备数据', description: '课时计划与任课安排' },
+                    { title: '生成草案', description: '启动排课引擎' },
+                    { title: '复核草案', description: '核对草案与正式课表' },
+                    { title: '发布生效', description: '替换正式课表' },
+                  ]}
+                />
+                <Row gutter={[12, 12]}>
+                  <Col xs={24} md={8}><ReviewStatCard title="当前状态" value={stageSummary.status} helper={stageSummary.title} /></Col>
+                  <Col xs={24} md={8}><ReviewStatCard title="完成度" value={`${readinessPercent}%`} helper={coreConfigReady ? '核心配置已具备基础条件' : '仍有核心项待完善'} /></Col>
+                  <Col xs={24} md={8}><ReviewStatCard title="下一步" value={primaryActionLabel} helper={stageSummary.description} /></Col>
+                </Row>
               </Space>
-            </Col>
-          </Row>
+            </SectionCard>
+
+            <Row gutter={[20, 20]} align="top">
+              <Col xs={24} xl={16}>
+                {workspaceStage === 'prepare' ? (
+                  <Space direction="vertical" size={18} style={{ width: '100%' }}>
+                    <SectionCard
+                      eyebrow="PREPARE"
+                      title="先补齐核心配置，再开始排课"
+                      description="对于第一次使用排课功能的老师，只需要先完成课时计划和任课安排；教师约束与锁定课位属于优化项。"
+                      extra={<Button type="primary" icon={<RobotOutlined />} disabled={!coreConfigReady} loading={solveLoading} onClick={handlePrimaryStageAction}>开始自动排课</Button>}
+                    >
+                      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                        {coreConfigReady ? (
+                          <Alert type="success" showIcon message="当前已具备生成草案的基础条件" description={dirty ? '检测到未保存修改，建议先保存，再开始自动排课。' : '现在可以直接开始自动排课，也可以继续补充教师约束和锁定课位。'} />
+                        ) : (
+                          <Alert type="warning" showIcon message="还有核心配置待完成" description={`请优先补齐${summaryCounts.plans ? '任课安排' : '课时计划'}，这样系统才能生成有效草案。`} />
+                        )}
+                        <Row gutter={[16, 16]}>
+                          <Col xs={24} md={8}>
+                            <WorkflowTaskTile
+                              title="课时计划"
+                              helper="定义每个学科的周课时、单日上限和禁排时段。"
+                              status={summaryCounts.plans ? 'done' : 'todo'}
+                              detail={summaryCounts.plans ? `已配置 ${summaryCounts.plans} 条规则` : '当前还没有可供排课的基础课时规则'}
+                              actionLabel="打开课时计划"
+                              onAction={() => openConfigTab('plans')}
+                            />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <WorkflowTaskTile
+                              title="任课安排"
+                              helper="建立班级、科目、教师三者之间的授课关系。"
+                              status={summaryCounts.arrangements ? 'done' : 'todo'}
+                              detail={summaryCounts.arrangements ? `已绑定 ${summaryCounts.arrangements} 条任课安排` : '当前还没有班级-科目-教师的绑定关系'}
+                              actionLabel="打开任课安排"
+                              onAction={() => openConfigTab('arrangements')}
+                            />
+                          </Col>
+                          <Col xs={24} md={8}>
+                            <WorkflowTaskTile
+                              title="高级规则"
+                              helper="用于处理教师个人时间、兼课安排和固定不变的课位。"
+                              status={summaryCounts.teacherConstraints || summaryCounts.locks ? 'done' : 'todo'}
+                              optional
+                              detail={`教师约束 ${summaryCounts.teacherConstraints} 条，锁定课位 ${summaryCounts.locks} 条`}
+                              actionLabel="打开高级规则"
+                              onAction={() => openConfigTab(summaryCounts.teacherConstraints ? 'locks' : 'constraints')}
+                            />
+                          </Col>
+                        </Row>
+                      </Space>
+                    </SectionCard>
+                    <div ref={configWorkspaceRef}>
+                      <SectionCard eyebrow="CONFIGURATION MODULES" title="排课配置详情" description="先配置核心规则，再补充高级约束。需要时也可以直接在这里细调。">
+                        <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
+                      </SectionCard>
+                    </div>
+                  </Space>
+                ) : null}
+
+                {workspaceStage === 'solving' ? (
+                  <SectionCard eyebrow="SOLVING" title="正在生成草案" description="系统正在根据当前年级配置计算可行课表。现在不需要继续填写配置，只需等待结果。">
+                    <Space direction="vertical" size={18} style={{ width: '100%' }}>
+                      <Alert type="info" showIcon message={taskSnapshot.title} description={taskSnapshot.description} />
+                      <Progress percent={Number(taskSnapshot.progress || 0)} strokeColor={pageTokens.primary} />
+                      <Row gutter={[12, 12]}>
+                        <Col xs={24} md={8}><ReviewStatCard title="当前阶段" value="生成草案" helper="系统正在计算可行解" /></Col>
+                        <Col xs={24} md={8}><ReviewStatCard title="当前年级" value={grade || '--'} helper="本次排课目标年级" /></Col>
+                        <Col xs={24} md={8}><ReviewStatCard title="草案状态" value="求解中" helper="完成后会自动进入复核阶段" /></Col>
+                      </Row>
+                    </Space>
+                  </SectionCard>
+                ) : null}
+
+                {workspaceStage === 'review' || workspaceStage === 'published' ? (
+                  <div ref={reviewSectionRef}>
+                    <SectionCard
+                    eyebrow="REVIEW"
+                    title={workspaceStage === 'published' ? '正式课表已发布' : '复核草案并决定是否发布'}
+                    description={workspaceStage === 'published' ? '当前草案已经发布为正式课表。你可以继续查看正式课表，或者调整后再次生成新草案。' : '草案生成后，请先查看草案课表、正式课表对比和风险清单，再决定是否发布。'}
+                    extra={<Button type="primary" icon={<SendOutlined />} loading={publishLoading} disabled={!canPublishCurrentDraft} onClick={handlePublishDraft}>发布为正式课表</Button>}
+                    >
+                    <Space direction="vertical" size={18} style={{ width: '100%' }}>
+                      <Alert
+                        type={workspaceStage === 'published' ? 'success' : canPublishCurrentDraft ? 'success' : 'warning'}
+                        showIcon
+                        message={workspaceStage === 'published' ? '正式课表已发布生效' : '草案已生成，正式课表尚未变更'}
+                        description={workspaceStage === 'published'
+                          ? '如需进一步调整，可以回到配置区修改后再次生成新草案。'
+                          : canPublishCurrentDraft
+                            ? '当前草案已通过发布检查。建议先对照草案课表与正式课表，再进行发布。'
+                            : '当前草案仍有待复核项，请先查看风险清单和正式课表对比。'}
+                      />
+                      <Row gutter={[12, 12]}>
+                        <Col xs={24} md={6}><ReviewStatCard title="草案得分" value={currentDraftScore} helper="当前草案质量评分" /></Col>
+                        <Col xs={24} md={6}><ReviewStatCard title="风险数" value={riskCount} helper="待复核风险条目" /></Col>
+                        <Col xs={24} md={6}><ReviewStatCard title="锁定命中" value={`${lockedHits}/${lockedTotal}`} helper="锁定规则满足情况" /></Col>
+                        <Col xs={24} md={6}><ReviewStatCard title="草案课位" value={draftItems.length} helper="本次生成课位数量" /></Col>
+                      </Row>
+                      <Tabs
+                        activeKey={reviewTab}
+                        onChange={setReviewTab}
+                        items={[
+                          {
+                            key: 'draft',
+                            label: '草案课表',
+                            children: (
+                              <div ref={draftSectionRef}>
+                                {draftRows.length ? (
+                                  <Table size="small" rowKey="key" pagination={false} columns={timetableColumns} dataSource={draftRows} scroll={{ x: 900 }} />
+                                ) : (
+                                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前还没有草案课表，保存配置后即可开始排课。" />
+                                )}
+                              </div>
+                            ),
+                          },
+                          {
+                            key: 'published',
+                            label: '正式课表对比',
+                            children: (
+                              <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                                <Select allowClear placeholder="选择班级查看正式课表" value={previewClassId} options={classOptions} onChange={handlePreviewClass} />
+                                {previewRows.length ? (
+                                  <Table size="small" rowKey="key" pagination={false} columns={timetableColumns} dataSource={previewRows} scroll={{ x: 900 }} />
+                                ) : (
+                                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前班级还没有可展示的正式课表。" />
+                                )}
+                              </Space>
+                            ),
+                          },
+                          {
+                            key: 'risks',
+                            label: `风险清单${publishChecks.length ? ` (${publishChecks.length})` : ''}`,
+                            children: publishChecks.length ? (
+                              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                                {publishChecks.map((item) => (
+                                  <Alert key={`${item.code}-${item.message}`} type={item.blocking ? 'error' : 'warning'} showIcon message={item.message} description={item.code} />
+                                ))}
+                              </Space>
+                            ) : (
+                              <Alert type="success" showIcon message="当前没有待处理风险项" description="这份草案目前没有额外的发布检查提醒。" />
+                            ),
+                          },
+                        ]}
+                      />
+                      <Space wrap>
+                        <Button onClick={() => openConfigTab(!summaryCounts.plans ? 'plans' : 'arrangements')}>返回调整配置</Button>
+                        <Button icon={<RobotOutlined />} loading={solveLoading} onClick={handleSolve}>重新生成草案</Button>
+                        <Button type="primary" icon={<SendOutlined />} loading={publishLoading} disabled={!canPublishCurrentDraft} onClick={handlePublishDraft}>发布为正式课表</Button>
+                      </Space>
+                    </Space>
+                  </SectionCard>
+                  </div>
+                ) : null}
+              </Col>
+              <Col xs={24} xl={8}>
+                <Space direction="vertical" size={18} style={{ width: '100%' }}>
+                  <SectionCard eyebrow="STAGE STATUS" title="当前阶段" description="只保留决策需要的信息，避免把草案内容和对比表全部堆在侧边。">
+                    <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                      <Alert type={workspaceStage === 'published' ? 'success' : workspaceStage === 'review' ? 'info' : workspaceStage === 'solving' ? 'info' : 'warning'} showIcon message={stageSummary.title} description={stageSummary.description} />
+                      <ReviewStatCard title="当前状态" value={stageSummary.status} helper="页面会根据当前阶段自动切换主内容" />
+                      <Button type="primary" icon={workspaceStage === 'review' || workspaceStage === 'published' ? <SendOutlined /> : <RobotOutlined />} loading={workspaceStage === 'solving' ? solveLoading : publishLoading} disabled={workspaceStage === 'solving'} onClick={handlePrimaryStageAction}>
+                        {primaryActionLabel}
+                      </Button>
+                    </Space>
+                  </SectionCard>
+
+                  <SectionCard eyebrow="CHECKLIST" title="核心检查" description="先把真正决定能否排课的输入补齐，其他优化项可以后补。">
+                    <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                      <Alert type={summaryCounts.plans ? 'success' : 'warning'} showIcon message={`课时计划：${summaryCounts.plans ? '已完成' : '待完成'}`} description={summaryCounts.plans ? `已配置 ${summaryCounts.plans} 条年级规则` : '先定义学科周课时、单日上限和禁排时段'} />
+                      <Alert type={summaryCounts.arrangements ? 'success' : 'warning'} showIcon message={`任课安排：${summaryCounts.arrangements ? '已完成' : '待完成'}`} description={summaryCounts.arrangements ? `已绑定 ${summaryCounts.arrangements} 条任课关系` : '先补齐班级-科目-教师的授课关系'} />
+                      <Alert type={summaryCounts.teacherConstraints ? 'success' : 'info'} showIcon message={`教师约束：${summaryCounts.teacherConstraints ? '已设置' : '可选'}`} description={summaryCounts.teacherConstraints ? `已设置 ${summaryCounts.teacherConstraints} 条教师约束` : '适合在基础配置稳定后做精细化控制'} />
+                      <Alert type={summaryCounts.locks ? 'success' : 'info'} showIcon message={`锁定课位：${summaryCounts.locks ? '已设置' : '可选'}`} description={summaryCounts.locks ? `已锁定 ${summaryCounts.locks} 个固定课位` : '用于保留班会、公共课等不允许变化的课位'} />
+                    </Space>
+                  </SectionCard>
+
+                  {(workspaceStage === 'review' || workspaceStage === 'published' || draftItems.length > 0) ? (
+                    <SectionCard eyebrow="DRAFT STATUS" title="草案状态" description="复核时只盯住是否可发布、有哪些风险、锁定是否命中。">
+                      <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                        <Row gutter={[12, 12]}>
+                          <Col span={12}><ReviewStatCard title="草案得分" value={currentDraftScore} helper="当前草案质量评分" /></Col>
+                          <Col span={12}><ReviewStatCard title="风险数" value={riskCount} helper="待复核风险条目" /></Col>
+                          <Col span={12}><ReviewStatCard title="锁定命中" value={`${lockedHits}/${lockedTotal}`} helper="锁定规则满足情况" /></Col>
+                          <Col span={12}><ReviewStatCard title="发布检查" value={blockingPublishChecks.length} helper="阻塞发布的问题数量" /></Col>
+                        </Row>
+                        {blockingPublishChecks.length ? (
+                          <Alert type="warning" showIcon message="仍有发布前检查项待处理" description={blockingPublishChecks[0]?.message || '请先查看风险清单。'} />
+                        ) : (
+                          <Alert type="success" showIcon message="当前草案已可发布" description="建议再对照草案课表和正式课表预览，确认无误后发布。" />
+                        )}
+                      </Space>
+                    </SectionCard>
+                  ) : null}
+                </Space>
+              </Col>
+            </Row>
+          </Space>
         </Spin>
+
+        <Modal
+          title="上传已有课表"
+          open={importOpen}
+          width={980}
+          onCancel={() => setImportOpen(false)}
+          footer={null}
+          destroyOnHidden
+        >
+          <Space direction="vertical" size={18} style={{ width: '100%' }}>
+            <Alert type="info" showIcon message="识别结果会先生成待确认草案，不会直接覆盖正式课表。" />
+            <Steps current={importStep} items={IMPORT_STEPS} />
+
+            {importStep === 0 ? (
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} md={8}>
+                    <Text strong>目标年级</Text>
+                    <Select
+                      style={{ width: '100%', marginTop: 8 }}
+                      placeholder="选择年级"
+                      value={importGrade || undefined}
+                      options={gradeOptions}
+                      onChange={handleImportGradeChange}
+                    />
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Text strong>导入范围</Text>
+                    <Select style={{ width: '100%', marginTop: 8 }} value={importScope} options={IMPORT_SCOPE_OPTIONS} onChange={setImportScope} />
+                  </Col>
+                  <Col xs={24} md={8}>
+                    <Text strong>目标班级</Text>
+                    <Select
+                      style={{ width: '100%', marginTop: 8 }}
+                      disabled={importScope !== 'class'}
+                      placeholder="选择班级"
+                      value={importClassId}
+                      options={importClassOptions}
+                      onChange={setImportClassId}
+                    />
+                  </Col>
+                </Row>
+                <Alert
+                  type="info"
+                  showIcon
+                  message="年级总课表支持多个 sheet，每个 sheet 名应对应一个班级，例如七一班、七1班。上传新课表只会生成待确认草案，不会立即覆盖正式课表。"
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button type="primary" disabled={!importGrade || !importGradeClasses.length} onClick={() => setImportStep(1)}>下一步</Button>
+                </div>
+              </Space>
+            ) : null}
+
+            {importStep === 1 ? (
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <Upload.Dragger
+                  maxCount={1}
+                  accept=".xlsx,.xlsm,.xltx,.xltm"
+                  beforeUpload={(file) => {
+                    setImportFile(file)
+                    return false
+                  }}
+                  onRemove={() => setImportFile(null)}
+                >
+                  <p className="ant-upload-drag-icon"><FileExcelOutlined /></p>
+                  <p className="ant-upload-text">点击或拖拽上传已有课表</p>
+                  <p className="ant-upload-hint">只支持 Excel 课表导入。年级总课表会按 sheet 名匹配班级；单元格可只填写科目，系统会自动匹配教师。</p>
+                </Upload.Dragger>
+                <Alert type="success" showIcon message="只支持 Excel 课表" description="请上传 .xlsx、.xlsm、.xltx 或 .xltm 文件。识别结果会进入核对页，并在生成草案前允许逐格修正。" />
+                <Button icon={<FileExcelOutlined />} onClick={handleDownloadImportTemplate}>下载Excel模板</Button>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Button onClick={() => setImportStep(0)}>上一步</Button>
+                  <Button type="primary" loading={importLoading} onClick={handleUploadImport}>开始识别</Button>
+                </div>
+              </Space>
+            ) : null}
+
+            {importStep === 2 ? (
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <Row gutter={[12, 12]}>
+                  <Col xs={12} md={6}><ReviewStatCard title="总课位" value={importIssues.total} helper="本次识别出的课位" /></Col>
+                  <Col xs={12} md={6}><ReviewStatCard title="待处理" value={importIssues.unresolved} helper="需要修正后再生成" /></Col>
+                  <Col xs={12} md={4}><ReviewStatCard title="未匹配教师" value={importIssues.teacherUnmatched} helper="需选择教师" /></Col>
+                  <Col xs={12} md={4}><ReviewStatCard title="教师待确认" value={importIssues.teacherAmbiguous} helper="多个候选教师" /></Col>
+                  <Col xs={12} md={4}><ReviewStatCard title="时间冲突" value={importIssues.teacherTimeConflict} helper="同节多班占用" /></Col>
+                </Row>
+                {importReadyForDraft ? (
+                  <Alert type="success" showIcon message="识别结果已可生成待确认草案" description="生成后正式课表尚未变更，请在草案区确认后再发布。" />
+                ) : (
+                  <Alert type="warning" showIcon message="仍有未处理课位" description="请先修正未识别科目、未匹配教师、教师待确认或教师时间冲突项。" />
+                )}
+                {importIssues.teacherUnmatched ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="课表中只有科目时，需要先匹配教师"
+                    description="如果上传的单班课表没有教师姓名，系统会根据“班级-科目-教师分配”自动匹配；没有匹配到时，请先到“班级-科目-教师分配”补齐任课安排，或在修正面板里手动选择教师。"
+                  />
+                ) : null}
+                <Row gutter={[12, 12]} align="middle">
+                  <Col xs={24} md={8}>
+                    <Text strong>状态筛选</Text>
+                    <Select
+                      style={{ width: '100%', marginTop: 8 }}
+                      value={importStatusFilter}
+                      options={IMPORT_STATUS_FILTER_OPTIONS}
+                      onChange={setImportStatusFilter}
+                    />
+                  </Col>
+                  <Col xs={24} md={16}>
+                    <Text style={{ color: pageTokens.muted }}>
+                      当前显示 {filteredImportItems.length} / {importItems.length} 个课位；识别完成后会优先显示待处理项。
+                    </Text>
+                  </Col>
+                </Row>
+                <Table
+                  size="small"
+                  rowKey="id"
+                  columns={importItemColumns}
+                  dataSource={filteredImportItems}
+                  pagination={false}
+                  scroll={{ x: 880, y: 360 }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Button onClick={() => setImportStep(1)}>重新上传</Button>
+                  <Button type="primary" loading={importLoading} disabled={!importReadyForDraft} onClick={handleCreateImportDraft}>生成待确认草案</Button>
+                </div>
+              </Space>
+            ) : null}
+
+            {importStep === 3 ? (
+              <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                <Alert
+                  type="success"
+                  showIcon
+                  message="已生成待确认草案，正式课表尚未变更"
+                  description="请到当前草案课表中复核；点击发布并二次确认后，才会替换正式课表。"
+                />
+                <Space>
+                  <Button disabled={!importDraftId} onClick={handleViewImportDraft}>查看草案</Button>
+                  <Button type="primary" disabled={!importDraftId} onClick={() => setImportOpen(false)}>稍后发布</Button>
+                </Space>
+              </Space>
+            ) : null}
+          </Space>
+        </Modal>
+
+        <Drawer
+          title="修正识别课位"
+          open={Boolean(editingImportItem)}
+          width={420}
+          zIndex={1300}
+          onClose={() => setEditingImportItem(null)}
+        >
+          {editingImportItem ? (
+            <Space direction="vertical" size={16} style={{ width: '100%' }}>
+              <Alert type="info" showIcon message={`${editingImportItem.class_name || ''} ${WEEKDAY_OPTIONS.find((item) => item.value === editingImportItem.weekday)?.label || ''} ${editingImportItem.period_name || ''}`} />
+              <div>
+                <Text strong>科目</Text>
+                <Select
+                  allowClear
+                  style={{ width: '100%', marginTop: 8 }}
+                  placeholder="选择科目"
+                  value={editingImportItem.subject_id}
+                  options={subjectOptions}
+                  notFoundContent="暂无科目"
+                  onChange={(value) => setEditingImportItem((current) => ({ ...current, subject_id: value }))}
+                />
+                {(editingImportItem.issue_flags || []).includes('unrecognized_subject') || !subjectOptions.length ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginTop: 10 }}
+                    message="没有对应的科目"
+                    description="请先创建科目，添加后刷新本页，再回到这里选择。"
+                  />
+                ) : null}
+              </div>
+              <div>
+                <Text strong>教师</Text>
+                <Select
+                  allowClear
+                  style={{ width: '100%', marginTop: 8 }}
+                  placeholder="选择教师"
+                  value={editingImportItem.teacher_id}
+                  options={teacherOptions}
+                  notFoundContent="暂无教师"
+                  onChange={(value) => setEditingImportItem((current) => ({ ...current, teacher_id: value }))}
+                />
+                {(editingImportItem.issue_flags || []).includes('teacher_unmatched') || !teacherOptions.length ? (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginTop: 10 }}
+                    message="没有可选的教师"
+                    description="请先创建教师账号，并在任课安排中绑定教师-班级-科目；添加后刷新本页再选择。"
+                  />
+                ) : null}
+              </div>
+              <div>
+                <Text strong>当前状态</Text>
+                <div style={{ marginTop: 8 }}><ImportIssueTags flags={editingImportItem.issue_flags || []} /></div>
+              </div>
+              {editingImportItem.conflict_items?.length ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  message="教师时间冲突"
+                  description={(
+                    <Space direction="vertical" size={4}>
+                      <Text>当前教师在同一时间已被以下课位占用，请更换教师或标记为空课。</Text>
+                      {editingImportItem.conflict_items.map((item) => (
+                        <Text key={item.id}>
+                          {item.class_name || '未知班级'} {WEEKDAY_OPTIONS.find((option) => option.value === item.weekday)?.label || `周${item.weekday}`} {item.period_name || `第${item.period_id}节`} {item.subject_name || item.recognized_subject_name || '未识别科目'}
+                        </Text>
+                      ))}
+                    </Space>
+                  )}
+                />
+              ) : null}
+              {editingImportItem.teacher_candidates?.length ? (
+                <div>
+                  <Text strong>候选教师</Text>
+                  <div style={{ marginTop: 8 }}>
+                    <Space wrap>
+                      {editingImportItem.teacher_candidates.map((candidate) => (
+                        <Tag key={candidate.id} color="blue" style={{ cursor: 'pointer' }} onClick={() => setEditingImportItem((current) => ({ ...current, teacher_id: candidate.id }))}>{candidate.username}</Tag>
+                      ))}
+                    </Space>
+                  </div>
+                </div>
+              ) : null}
+              <Divider />
+              <Space style={{ justifyContent: 'space-between', width: '100%' }}>
+                <Button onClick={() => handleSaveImportItem({ is_empty: true })}>标记为空课</Button>
+                <Button type="primary" loading={importLoading} onClick={() => handleSaveImportItem({ subject_id: editingImportItem.subject_id, teacher_id: editingImportItem.teacher_id, is_empty: false })}>保存</Button>
+              </Space>
+            </Space>
+          ) : null}
+        </Drawer>
       </Space>
     </div>
   )

@@ -69,6 +69,16 @@ assert.match(
 )
 assert.match(
   classSource,
+  /选择年级/,
+  'class analysis should render a grade picker label',
+)
+assert.match(
+  classSource,
+  /请选择年级查看班级分析/,
+  'class analysis should prompt school-wide users to choose a grade before viewing rankings',
+)
+assert.match(
+  classSource,
   /className="class-analysis-rank-grid"/,
   'class analysis should render the ranking charts in the shared visual system',
 )
@@ -133,6 +143,21 @@ assert.doesNotMatch(
   classSource,
   /field: 'good_rate'|field: 'pass_rate'|field: 'low_rate'/,
   'class distribution tooltip should not render non-hovered rate fields',
+)
+assert.match(
+  classSource,
+  /export default function ClassAnalysis\(\{ examId, examGrades = \[\] \}\)/,
+  'class analysis should accept exam grade scope from score manage',
+)
+assert.match(
+  classSource,
+  /options=\{gradeOptions.map\(\(grade\) => \(\{ value: grade, label: grade \}\)\)\}/,
+  'class analysis should render grade options from scoped grade list',
+)
+assert.match(
+  await readFile(new URL('./ScoreManage.jsx', import.meta.url), 'utf8'),
+  /<ClassAnalysis examId=\{selectedExam\} examGrades=\{parseExamGrades\(selectedExamInfo\?\.grade\)\} \/>/,
+  'score manage should pass exam grade scope into class analysis',
 )
 
 console.log('analysis comparison content checks passed')
