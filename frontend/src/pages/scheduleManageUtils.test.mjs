@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 
 import {
   buildConfigWarnings,
+  findArrangementSubjectsMissingPlans,
   buildSummaryCounts,
   buildTaskSnapshot,
   buildTimetableRows,
@@ -96,6 +97,30 @@ assert.deepEqual(
     dirty: true,
   }),
   ['尚未配置课时计划', '尚未配置任课安排', '当前修改尚未保存'],
+)
+
+assert.deepEqual(
+  findArrangementSubjectsMissingPlans({
+    plans: [{ subject_id: 2 }],
+    arrangements: [
+      { class_id: 1, subject_id: 2, teacher_id: 10 },
+      { class_id: 1, subject_id: 16, teacher_id: 11 },
+      { class_id: 2, subject_id: 16, teacher_id: 12 },
+      { class_id: undefined, subject_id: 18, teacher_id: 13 },
+    ],
+    subjects: [{ id: 16, name: 'Dao Fa' }],
+  }),
+  [{ subject_id: 16, subject_name: 'Dao Fa' }],
+)
+
+assert.deepEqual(
+  buildConfigWarnings({
+    plans: [{ subject_id: 2 }],
+    arrangements: [{ class_id: 1, subject_id: 16, teacher_id: 11 }],
+    subjects: [{ id: 16, name: 'Dao Fa' }],
+    dirty: false,
+  }),
+  ['有 1 门任课科目未配置课时规则，本次不会自动排课：Dao Fa'],
 )
 
 assert.deepEqual(

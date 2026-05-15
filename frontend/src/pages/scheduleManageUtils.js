@@ -118,7 +118,29 @@ export function buildSummaryCounts({ plans = [], arrangements = [], overrides = 
   }
 }
 
-export function buildConfigWarnings({ plans = [], arrangements = [], dirty = false }) {
+export function findArrangementSubjectsMissingPlans({ plans = [], arrangements = [], subjects = [] }) {
+  const plannedSubjectIds = new Set(
+    (plans || [])
+      .map((item) => Number(item?.subject_id || 0))
+      .filter(Boolean),
+  )
+  const subjectNameMap = new Map((subjects || []).map((item) => [Number(item.id), item.name]))
+  const missingSubjectIds = [
+    ...new Set(
+      (arrangements || [])
+        .filter((item) => item?.class_id && item?.subject_id && item?.teacher_id)
+        .map((item) => Number(item.subject_id || 0))
+        .filter((subjectId) => subjectId && !plannedSubjectIds.has(subjectId)),
+    ),
+  ]
+
+  return missingSubjectIds.map((subjectId) => ({
+    subject_id: subjectId,
+    subject_name: subjectNameMap.get(subjectId) || `科目 ${subjectId}`,
+  }))
+}
+
+export function buildConfigWarnings({ plans = [], arrangements = [], subjects = [], dirty = false }) {
   const warnings = []
   const summaryCounts = buildSummaryCounts({ plans, arrangements })
 
@@ -128,6 +150,12 @@ export function buildConfigWarnings({ plans = [], arrangements = [], dirty = fal
 
   if (!summaryCounts.arrangements) {
     warnings.push('尚未配置任课安排')
+  }
+
+  const missingPlanSubjects = findArrangementSubjectsMissingPlans({ plans, arrangements, subjects })
+  if (missingPlanSubjects.length) {
+    const names = missingPlanSubjects.map((item) => item.subject_name).join('、')
+    warnings.push(`有 ${missingPlanSubjects.length} 门任课科目未配置课时规则，本次不会自动排课：${names}`)
   }
 
   if (dirty) {

@@ -343,7 +343,7 @@ export default function ScheduleManage() {
   )
 
   const summaryCounts = buildSummaryCounts({ plans, arrangements, overrides, teacherConstraints, locks })
-  const configWarnings = buildConfigWarnings({ plans, arrangements, dirty })
+  const configWarnings = buildConfigWarnings({ plans, arrangements, subjects, dirty })
   const taskSnapshot = buildTaskSnapshot({ task, currentDraft, draftItems })
   const draftRows = buildTimetableRows(draftItems, periods)
   const gradeClasses = classes.filter((item) => item.grade === grade)
