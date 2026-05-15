@@ -29,14 +29,22 @@ def validate_raw_config(raw_config: dict[str, Any]) -> list[dict[str, Any]]:
         diagnostics.append(_diag("no_arrangements", "当前年级没有授课安排"))
 
     base_plan_subject_ids = {int(item.get("subject_id") or 0) for item in lesson_plans if int(item.get("class_id") or 0) == 0}
+    sorted_base_plan_subject_ids = sorted(subject_id for subject_id in base_plan_subject_ids if subject_id)
     for arrangement in arrangements:
         subject_id = int(arrangement.get("subject_id") or 0)
         if subject_id and subject_id not in base_plan_subject_ids:
+            subject_name = str(arrangement.get("subject_name") or "").strip()
+            subject_label = f"{subject_name} (ID {subject_id})" if subject_name else str(subject_id)
             diagnostics.append(
                 _diag(
                     "missing_lesson_plan",
-                    f"科目 {subject_id} 缺少年级基础课时规则",
-                    entity={"subject_id": subject_id},
+                    f"科目 {subject_label} 未配置年级基础课时规则，本次不会自动排课",
+                    blocking=False,
+                    entity={
+                        "subject_id": subject_id,
+                        "subject_name": subject_name,
+                        "base_plan_subject_ids": sorted_base_plan_subject_ids,
+                    },
                 )
             )
 
