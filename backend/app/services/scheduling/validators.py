@@ -47,8 +47,8 @@ def validate_raw_config(raw_config: dict[str, Any]) -> list[dict[str, Any]]:
             diagnostics.append(
                 _diag(
                     "missing_lesson_plan",
-                    f"科目 {subject_label} 未配置年级基础课时规则，本次不会自动排课",
-                    blocking=True,
+                    f"科目 {subject_label} 未纳入本次课时计划，本次不会自动排课",
+                    blocking=False,
                     entity={
                         "subject_id": subject_id,
                         "subject_name": subject_name,

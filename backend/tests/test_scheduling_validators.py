@@ -6,7 +6,7 @@ from app.services.scheduling.validators import validate_compiled_problem
 
 
 class SchedulingValidatorTests(unittest.TestCase):
-    def test_missing_lesson_plan_blocks_autoschedule_with_subject_notice(self):
+    def test_arrangement_subject_outside_current_lesson_plan_is_non_blocking_notice(self):
         diagnostics = validate_raw_config(
             {
                 "classes": [{"id": 1, "name": "Class 1"}],
@@ -23,9 +23,9 @@ class SchedulingValidatorTests(unittest.TestCase):
         self.assertEqual(diagnostics[0]["code"], "missing_lesson_plan")
         self.assertEqual(
             diagnostics[0]["message"],
-            "科目 Dao Fa (ID 16) 未配置年级基础课时规则，本次不会自动排课",
+            "科目 Dao Fa (ID 16) 未纳入本次课时计划，本次不会自动排课",
         )
-        self.assertTrue(diagnostics[0]["blocking"])
+        self.assertFalse(diagnostics[0]["blocking"])
         self.assertEqual(diagnostics[0]["entity"]["subject_id"], 16)
         self.assertEqual(diagnostics[0]["entity"]["subject_name"], "Dao Fa")
         self.assertEqual(diagnostics[0]["entity"]["base_plan_subject_ids"], [2])
