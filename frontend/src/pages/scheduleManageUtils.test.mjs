@@ -3,7 +3,9 @@ import { readFile } from 'node:fs/promises'
 
 import {
   buildConfigWarnings,
+  findClassPlanSubjectsMissingArrangements,
   findArrangementSubjectsMissingPlans,
+  findPlanSubjectsMissingArrangements,
   buildSummaryCounts,
   buildTaskSnapshot,
   buildTimetableRows,
@@ -17,6 +19,9 @@ import {
 const schedulingApiSource = await readFile(new URL('../api/scheduling.js', import.meta.url), 'utf8')
 const scheduleManageSource = await readFile(new URL('./ScheduleManage.jsx', import.meta.url), 'utf8')
 
+assert.match(scheduleManageSource, /arrangementClassFilter/)
+assert.match(scheduleManageSource, /visibleArrangementRows/)
+assert.match(scheduleManageSource, /dataSource=\{visibleArrangementRows\}/)
 assert.match(schedulingApiSource, /exportScheduleDraft/)
 assert.match(schedulingApiSource, /\/api\/schedule\/drafts\/\$\{draftId\}\/export/)
 assert.match(scheduleManageSource, /handleExportDraft/)
@@ -125,13 +130,52 @@ assert.deepEqual(
 )
 
 assert.deepEqual(
+  findPlanSubjectsMissingArrangements({
+    plans: [{ subject_id: 11 }, { subject_id: 17 }],
+    arrangements: [
+      { class_id: 1, subject_id: 11, teacher_id: 10 },
+      { class_id: 2, subject_id: 18, teacher_id: 11 },
+    ],
+    subjects: [{ id: 17, name: 'Labor' }],
+  }),
+  [{ subject_id: 17, subject_name: 'Labor' }],
+)
+
+assert.deepEqual(
+  findClassPlanSubjectsMissingArrangements({
+    classes: [{ id: 7, name: '八七班' }, { id: 8, name: '八八班' }],
+    plans: [{ subject_id: 15, weekly_hours: 1 }],
+    arrangements: [{ class_id: 7, subject_id: 15, teacher_id: 12 }],
+    subjects: [{ id: 15, name: '班会' }],
+  }),
+  [{ class_id: 8, class_name: '八八班', subject_id: 15, subject_name: '班会', weekly_hours: 1 }],
+)
+
+assert.deepEqual(
   buildConfigWarnings({
-    plans: [{ subject_id: 2 }],
-    arrangements: [{ class_id: 1, subject_id: 16, teacher_id: 11 }],
-    subjects: [{ id: 16, name: 'Dao Fa' }],
+    plans: [{ subject_id: 2 }, { subject_id: 17 }],
+    arrangements: [
+      { class_id: 1, subject_id: 2, teacher_id: 10 },
+      { class_id: 1, subject_id: 16, teacher_id: 11 },
+    ],
+    subjects: [{ id: 16, name: 'Dao Fa' }, { id: 17, name: 'Labor' }],
     dirty: false,
   }),
-  ['有 1 门任课科目未配置课时规则，本次不会自动排课：Dao Fa'],
+  [
+    '有 1 门任课科目未配置课时规则，本次不会自动排课：Dao Fa',
+    '有 1 门课时计划科目尚未配置任课安排，本次不会自动排课：Labor',
+  ],
+)
+
+assert.deepEqual(
+  buildConfigWarnings({
+    classes: [{ id: 7, name: '八七班' }, { id: 8, name: '八八班' }],
+    plans: [{ subject_id: 15, weekly_hours: 1 }],
+    arrangements: [{ class_id: 7, subject_id: 15, teacher_id: 12 }],
+    subjects: [{ id: 15, name: '班会' }],
+    dirty: false,
+  }),
+  ['有 1 个班级科目缺少任课安排，本次会少排对应课时：八八班-班会 1节'],
 )
 
 assert.deepEqual(

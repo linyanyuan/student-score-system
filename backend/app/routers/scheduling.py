@@ -2,6 +2,7 @@
 
 import io
 import json
+import re
 from datetime import datetime
 from typing import Any
 from urllib.parse import quote
@@ -9,6 +10,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy import MetaData, Table
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -218,6 +220,93 @@ def _safe_sheet_title(value: str, fallback: str, used_titles: set[str]) -> str:
             used_titles.add(candidate)
             return candidate
         index += 1
+
+
+_CHINESE_DIGITS = {
+    "一": 1,
+    "二": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def _parse_standard_chinese_number(value: str) -> int | None:
+    if not value:
+        return None
+    if value == "十":
+        return 10
+    if "十" in value:
+        left, right = value.split("十", 1)
+        tens = _CHINESE_DIGITS.get(left, 1) if left else 1
+        ones = _CHINESE_DIGITS.get(right, 0) if right else 0
+        return tens * 10 + ones
+    return _CHINESE_DIGITS.get(value)
+
+
+def _extract_class_number(class_name: str) -> int | None:
+    name = (class_name or "").strip()
+    match = re.search(r"(\d+)\s*班$", name)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"([一二三四五六七八九十]+)\s*班$", name)
+    if not match:
+        return None
+    token = match.group(1)
+    if len(token) > 1 and token[0] in "七八九":
+        suffix_number = _parse_standard_chinese_number(token[1:])
+        if suffix_number is not None:
+            return suffix_number
+    return _parse_standard_chinese_number(token)
+
+
+def _class_sheet_sort_key(class_id: int, class_name_map: dict[int, str]) -> tuple[Any, ...]:
+    class_name = class_name_map.get(class_id, str(class_id))
+    class_number = _extract_class_number(class_name)
+    if class_number is not None:
+        return (0, class_number, class_name, class_id)
+    return (1, class_name, class_id)
+
+
+def _is_afternoon_period(period: SchedulePeriod) -> bool:
+    start_time = str(period.start_time or "")
+    if not start_time:
+        return False
+    hour_text = start_time.split(":", 1)[0]
+    return hour_text.isdigit() and int(hour_text) >= 12
+
+
+def _style_schedule_sheet(ws, max_row: int, max_col: int = 6) -> None:
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=max_col)
+    ws.column_dimensions["A"].width = 12
+    for column_index in range(2, max_col + 1):
+        ws.column_dimensions[chr(64 + column_index)].width = 14
+    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[2].height = 26
+
+    thin = Side(style="thin", color="000000")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_fill = PatternFill("solid", fgColor="F7F7F7")
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    ws["A1"].font = Font(name="SimSun", size=20, bold=True)
+    ws["A1"].alignment = center
+    ws["A2"].font = Font(name="SimSun", size=14, bold=True)
+    ws["A2"].alignment = center
+
+    for row in ws.iter_rows(min_row=3, max_row=max_row, min_col=1, max_col=max_col):
+        for cell in row:
+            cell.border = border
+            cell.alignment = center
+            cell.font = Font(name="SimSun", size=11, bold=True)
+            if cell.row == 3:
+                cell.fill = header_fill
+    ws.freeze_panes = "B4"
 
 
 def _mark_task_failed(db: Session, task: ScheduleTask, message: str, *, error: str | None = None, result: dict[str, Any] | None = None) -> None:
@@ -629,27 +718,40 @@ def export_schedule_draft(draft_id: int, current_user: User = Depends(require_sc
     class_name_map, subject_name_map, _teacher_name_map, _period_name_map = _build_timetable_names(db, rows)
     period_ids = sorted({row.period_id for row in rows})
     periods = db.query(SchedulePeriod).filter(SchedulePeriod.id.in_(period_ids)).order_by(SchedulePeriod.sort_order, SchedulePeriod.id).all() if period_ids else []
-    class_ids = sorted({row.class_id for row in rows}, key=lambda class_id: class_name_map.get(class_id, str(class_id)))
+    class_ids = sorted({row.class_id for row in rows}, key=lambda class_id: _class_sheet_sort_key(class_id, class_name_map))
 
     wb = Workbook()
     wb.remove(wb.active)
     used_titles: set[str] = set()
-    weekdays = ["周一", "周二", "周三", "周四", "周五"]
+    weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五"]
     for class_id in class_ids:
-        ws = wb.create_sheet(title=_safe_sheet_title(class_name_map.get(class_id, ""), f"班级{class_id}", used_titles))
+        class_title = class_name_map.get(class_id, "") or f"班级{class_id}"
+        ws = wb.create_sheet(title=_safe_sheet_title(class_title, f"班级{class_id}", used_titles))
+        ws.append(["课 程 表", "", "", "", "", ""])
+        ws.append([class_title, "", "", "", "", ""])
         ws.append(["节次", *weekdays])
         class_rows = [row for row in rows if row.class_id == class_id]
         item_map = {(row.weekday, row.period_id): row for row in class_rows}
+        lunch_inserted = False
         for period in periods:
+            if not lunch_inserted and _is_afternoon_period(period):
+                ws.append(["午休", "", "", "", "", ""])
+                lunch_row = ws.max_row
+                ws.merge_cells(start_row=lunch_row, start_column=1, end_row=lunch_row, end_column=6)
+                lunch_inserted = True
             line = [period.name]
             for weekday in range(1, 6):
                 item = item_map.get((weekday, period.id))
                 line.append(subject_name_map.get(item.subject_id, "") if item else "")
             ws.append(line)
+        _style_schedule_sheet(ws, ws.max_row)
 
     if not wb.sheetnames:
         ws = wb.create_sheet(title="课表")
+        ws.append(["课 程 表", "", "", "", "", ""])
+        ws.append(["课表", "", "", "", "", ""])
         ws.append(["节次", *weekdays])
+        _style_schedule_sheet(ws, ws.max_row)
 
     buf = io.BytesIO()
     wb.save(buf)

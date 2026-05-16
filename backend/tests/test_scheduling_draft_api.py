@@ -123,7 +123,46 @@ class SchedulingDraftApiTests(unittest.TestCase):
         self.assertEqual(workbook.sheetnames, ['1班', '2班'])
         first_sheet = workbook['1班']
         second_sheet = workbook['2班']
-        self.assertEqual(first_sheet['A1'].value, '节次')
-        self.assertEqual(first_sheet['B2'].value, '数学')
+        self.assertEqual(first_sheet['A1'].value, '课 程 表')
+        self.assertEqual(first_sheet['A2'].value, '1班')
+        self.assertEqual(first_sheet['A3'].value, '节次')
+        self.assertEqual(first_sheet['B4'].value, '数学')
+        self.assertTrue(first_sheet['A1'].font.bold)
+        self.assertEqual(first_sheet['B4'].alignment.horizontal, 'center')
+        self.assertEqual(first_sheet['A3'].border.left.style, 'thin')
         self.assertNotIn('teacher_draft', [cell.value for row in first_sheet.iter_rows() for cell in row])
-        self.assertEqual(second_sheet['C3'].value, '语文')
+        self.assertEqual(second_sheet['C5'].value, '语文')
+
+    def test_export_draft_sorts_chinese_class_sheets_by_class_number(self):
+        classes = [
+            Class(name='八八班', grade='八年级', school_id=self.school.id),
+            Class(name='八二班', grade='八年级', school_id=self.school.id),
+            Class(name='八一班', grade='八年级', school_id=self.school.id),
+        ]
+        self.db.add_all(classes)
+        self.db.commit()
+        for class_item in classes:
+            self.db.refresh(class_item)
+
+        draft = ScheduleDraft(school_id=self.school.id, grade='八年级', status='draft', score=100, created_by=self.admin.id)
+        self.db.add(draft)
+        self.db.flush()
+        first_period = self.db.query(SchedulePeriod).filter(SchedulePeriod.sort_order == 1).first()
+        self.db.add_all([
+            ScheduleDraftItem(
+                draft_id=draft.id,
+                class_id=class_item.id,
+                teacher_id=self.teacher.id,
+                subject_id=self.subject.id,
+                weekday=index + 1,
+                period_id=first_period.id,
+            )
+            for index, class_item in enumerate(classes)
+        ])
+        self.db.commit()
+
+        response = self.client.get(f'/api/schedule/drafts/{draft.id}/export')
+
+        self.assertEqual(response.status_code, 200)
+        workbook = load_workbook(BytesIO(response.content))
+        self.assertEqual(workbook.sheetnames, ['八一班', '八二班', '八八班'])
