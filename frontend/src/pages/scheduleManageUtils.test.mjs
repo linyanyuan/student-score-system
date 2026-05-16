@@ -177,6 +177,9 @@ assert.match(schedulingApiSource, /request\.post\('\/api\/schedule\/imports'/)
 assert.match(schedulingApiSource, /request\.get\('\/api\/schedule\/imports\/template'/)
 assert.match(schedulingApiSource, /request\.get\(`\/api\/schedule\/imports\/\$\{importId\}\/items`\)/)
 assert.match(schedulingApiSource, /request\.post\(`\/api\/schedule\/imports\/\$\{importId\}\/draft`\)/)
+assert.match(schedulingApiSource, /exportScheduleDebugConfig/)
+assert.match(schedulingApiSource, /\/api\/schedule\/debug-config\/\$\{encodeURIComponent\(grade\)\}\/export/)
+assert.match(schedulingApiSource, /responseType: 'blob'/)
 
 assert.match(scheduleManageSource, /上传已有课表/)
 assert.match(scheduleManageSource, /排课流程/)
@@ -191,6 +194,12 @@ assert.match(scheduleManageSource, /草案课表/)
 assert.match(scheduleManageSource, /正式课表对比/)
 assert.match(scheduleManageSource, /风险清单/)
 assert.match(scheduleManageSource, /workflowStage|workspaceStage/)
+assert.match(scheduleManageSource, /task\?\.status === 'failed'/)
+assert.match(scheduleManageSource, /<Alert type="error" showIcon message=\{taskSnapshot\.title\} description=\{taskSnapshot\.description\}/)
+assert.match(scheduleManageSource, /导出调试包/)
+assert.match(scheduleManageSource, /handleExportDebugConfig/)
+assert.match(scheduleManageSource, /请先保存配置后再导出调试包/)
+assert.match(scheduleManageSource, /schedule-debug-\$\{grade\}-\$\{timestamp\}\.json/)
 assert.match(scheduleManageSource, /待确认草案/)
 assert.match(scheduleManageSource, /正式课表尚未变更/)
 assert.match(scheduleManageSource, /只支持 Excel 课表/)
@@ -230,6 +239,30 @@ assert.deepEqual(
     title: '排课引擎正在生成当前草案',
     description: '正在计算冲突',
     progress: 32,
+    readyToPublish: false,
+  },
+)
+
+assert.deepEqual(
+  buildTaskSnapshot({
+    task: {
+      status: 'failed',
+      progress: 100,
+      error: '排课模型校验失败',
+      result: {
+        diagnostics: [
+          { code: 'class_capacity_exceeded', message: '班级 1 需要排 36 节课，但可用课位只有 35 个' },
+        ],
+      },
+    },
+    currentDraft: null,
+    draftItems: [],
+  }),
+  {
+    tone: 'danger',
+    title: '排课任务失败',
+    description: '班级 1 需要排 36 节课，但可用课位只有 35 个',
+    progress: 100,
     readyToPublish: false,
   },
 )

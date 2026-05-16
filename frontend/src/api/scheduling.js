@@ -34,6 +34,8 @@ export const createScheduleImport = (formData) =>
   })
 export const downloadScheduleImportTemplate = () =>
   request.get('/api/schedule/imports/template', { responseType: 'blob' })
+export const exportScheduleDebugConfig = (grade) =>
+  request.get(`/api/schedule/debug-config/${encodeURIComponent(grade)}/export`, { responseType: 'blob' })
 export const getScheduleImport = (importId) => request.get(`/api/schedule/imports/${importId}`)
 export const getScheduleImportItems = (importId) => request.get(`/api/schedule/imports/${importId}/items`)
 export const patchScheduleImportItem = (importId, itemId, data) => request.patch(`/api/schedule/imports/${importId}/items/${itemId}`, data)
