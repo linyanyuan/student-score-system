@@ -48,6 +48,7 @@ import {
   createScheduleImport,
   createScheduleImportDraft,
   downloadScheduleImportTemplate,
+  exportScheduleDraft,
   exportScheduleDebugConfig,
   getClassTimetable,
   getLessonPlan,
@@ -307,6 +308,7 @@ export default function ScheduleManage() {
   const [currentDraft, setCurrentDraft] = useState(null)
   const [draftItems, setDraftItems] = useState([])
   const [previewRows, setPreviewRows] = useState([])
+  const [reviewClassId, setReviewClassId] = useState(undefined)
   const [previewClassId, setPreviewClassId] = useState(undefined)
   const [activeTab, setActiveTab] = useState('overview')
   const [reloadTick, setReloadTick] = useState(0)
@@ -316,6 +318,7 @@ export default function ScheduleManage() {
   const [solveLoading, setSolveLoading] = useState(false)
   const [publishLoading, setPublishLoading] = useState(false)
   const [debugExportLoading, setDebugExportLoading] = useState(false)
+  const [draftExportLoading, setDraftExportLoading] = useState(false)
   const [pageError, setPageError] = useState('')
   const [dirty, setDirty] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -348,9 +351,11 @@ export default function ScheduleManage() {
   const summaryCounts = buildSummaryCounts({ plans, arrangements, overrides, teacherConstraints, locks })
   const configWarnings = buildConfigWarnings({ plans, arrangements, subjects, dirty })
   const taskSnapshot = buildTaskSnapshot({ task, currentDraft, draftItems })
-  const draftRows = buildTimetableRows(draftItems, periods)
-  const gradeClasses = classes.filter((item) => item.grade === grade)
+  const gradeClasses = useMemo(() => classes.filter((item) => item.grade === grade), [classes, grade])
   const classOptions = gradeClasses.map((item) => ({ label: `${item.grade}-${item.name}`, value: item.id }))
+  const selectedDraftItems = reviewClassId ? draftItems.filter((item) => item.class_id === reviewClassId) : draftItems
+  const draftRows = buildTimetableRows(selectedDraftItems, periods)
+  const reviewClassLabel = classOptions.find((item) => item.value === reviewClassId)?.label || '未选择班级'
   const importGradeClasses = classes.filter((item) => item.grade === importGrade)
   const importClassOptions = importGradeClasses.map((item) => ({ label: `${item.grade}-${item.name}`, value: item.id }))
   const subjectOptions = subjects.map((item) => ({ label: item.name, value: item.id }))
@@ -368,6 +373,28 @@ export default function ScheduleManage() {
     if (currentDraftId || currentDraft) return 'review'
     return 'prepare'
   }, [currentDraft, currentDraftId, task])
+
+  useEffect(() => {
+    if (!gradeClasses.length) {
+      setReviewClassId(undefined)
+      setPreviewClassId(undefined)
+      setPreviewRows([])
+      return
+    }
+    if (!reviewClassId || !gradeClasses.some((item) => item.id === reviewClassId)) {
+      setReviewClassId(gradeClasses[0].id)
+    }
+  }, [gradeClasses, reviewClassId])
+
+  useEffect(() => {
+    if (!(workspaceStage === 'review' || workspaceStage === 'published')) return
+    if (!reviewClassId) {
+      setPreviewClassId(undefined)
+      setPreviewRows([])
+      return
+    }
+    handlePreviewClass(reviewClassId)
+  }, [reviewClassId, workspaceStage])
 
   const readinessPercent = useMemo(() => {
     const checkpoints = [Boolean(grade), summaryCounts.plans > 0, summaryCounts.arrangements > 0, !dirty]
@@ -671,8 +698,8 @@ export default function ScheduleManage() {
       await publishScheduleDraft(currentDraftId)
       message.success('草案已发布为正式课表')
       await loadDraftBundle(currentDraftId)
-      if (previewClassId) {
-        const response = await getClassTimetable(previewClassId)
+      if (reviewClassId) {
+        const response = await getClassTimetable(reviewClassId)
         setPreviewRows(buildTimetableRows(response.data?.items || [], periods))
       }
     } catch (error) {
@@ -692,6 +719,31 @@ export default function ScheduleManage() {
     } catch (error) {
       message.error(error.message || '正式课表预览加载失败')
     }
+  }
+
+  function handleReviewClassChange(classId) {
+    setReviewClassId(classId)
+  }
+
+  function renderReviewTimetableBlock(title, description, rows, emptyDescription) {
+    return (
+      <div style={{ border: '1px solid rgba(177, 195, 219, 0.42)', borderRadius: 14, padding: 14, background: 'rgba(248, 251, 255, 0.72)' }}>
+        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <Space size={8} align="center">
+              <TableOutlined style={{ color: pageTokens.primary }} />
+              <Text strong>{title}</Text>
+            </Space>
+            <Text type="secondary">{description}</Text>
+          </Space>
+          {rows.length ? (
+            <Table size="small" rowKey="key" pagination={false} columns={timetableColumns} dataSource={rows} scroll={{ x: 900 }} />
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyDescription} />
+          )}
+        </Space>
+      </div>
+    )
   }
 
   function resetImportWizard() {
@@ -825,6 +877,29 @@ export default function ScheduleManage() {
       message.error(error.message || '导出调试包失败')
     } finally {
       setDebugExportLoading(false)
+    }
+  }
+
+  async function handleExportDraft() {
+    if (!currentDraftId) return message.warning('当前没有可导出的草案')
+
+    setDraftExportLoading(true)
+    try {
+      const response = await exportScheduleDraft(currentDraftId)
+      const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '')
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `schedule-draft-${grade || currentDraftId}-${timestamp}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      message.success('课表已导出')
+    } catch (error) {
+      message.error(error.message || '导出课表失败')
+    } finally {
+      setDraftExportLoading(false)
     }
   }
 
@@ -1291,10 +1366,10 @@ export default function ScheduleManage() {
                 {workspaceStage === 'review' || workspaceStage === 'published' ? (
                   <div ref={reviewSectionRef}>
                     <SectionCard
-                    eyebrow="REVIEW"
-                    title={workspaceStage === 'published' ? '正式课表已发布' : '复核草案并决定是否发布'}
-                    description={workspaceStage === 'published' ? '当前草案已经发布为正式课表。你可以继续查看正式课表，或者调整后再次生成新草案。' : '草案生成后，请先查看草案课表、正式课表对比和风险清单，再决定是否发布。'}
-                    extra={<Button type="primary" icon={<SendOutlined />} loading={publishLoading} disabled={!canPublishCurrentDraft} onClick={handlePublishDraft}>发布为正式课表</Button>}
+                      eyebrow="REVIEW"
+                      title={workspaceStage === 'published' ? '正式课表已发布' : '复核草案并决定是否发布'}
+                      description={workspaceStage === 'published' ? '当前草案已经发布为正式课表。你可以继续查看正式课表，或者调整后再次生成新草案。' : '草案生成后，请先查看草案课表、正式课表对比和风险清单，再决定是否发布。'}
+                      extra={<Button type="primary" icon={<SendOutlined />} loading={publishLoading} disabled={!canPublishCurrentDraft} onClick={handlePublishDraft}>发布为正式课表</Button>}
                     >
                     <Space direction="vertical" size={18} style={{ width: '100%' }}>
                       <Alert
@@ -1313,6 +1388,12 @@ export default function ScheduleManage() {
                         <Col xs={24} md={6}><ReviewStatCard title="锁定命中" value={`${lockedHits}/${lockedTotal}`} helper="锁定规则满足情况" /></Col>
                         <Col xs={24} md={6}><ReviewStatCard title="草案课位" value={draftItems.length} helper="本次生成课位数量" /></Col>
                       </Row>
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={`当前班级：${reviewClassLabel}`}
+                        description="下面的正式课表与草案课表会针对同一个班级并排展示，便于快速发现变化。"
+                      />
                       <Tabs
                         activeKey={reviewTab}
                         onChange={setReviewTab}
@@ -1322,11 +1403,10 @@ export default function ScheduleManage() {
                             label: '草案课表',
                             children: (
                               <div ref={draftSectionRef}>
-                                {draftRows.length ? (
-                                  <Table size="small" rowKey="key" pagination={false} columns={timetableColumns} dataSource={draftRows} scroll={{ x: 900 }} />
-                                ) : (
-                                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前还没有草案课表，保存配置后即可开始排课。" />
-                                )}
+                                <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                                  <Select placeholder="选择班级查看草案课表" value={reviewClassId} options={classOptions} onChange={handleReviewClassChange} />
+                                  {renderReviewTimetableBlock('草案课表', reviewClassLabel, draftRows, '当前还没有草案课表，保存配置后即可开始排课。')}
+                                </Space>
                               </div>
                             ),
                           },
@@ -1335,12 +1415,10 @@ export default function ScheduleManage() {
                             label: '正式课表对比',
                             children: (
                               <Space direction="vertical" size={14} style={{ width: '100%' }}>
-                                <Select allowClear placeholder="选择班级查看正式课表" value={previewClassId} options={classOptions} onChange={handlePreviewClass} />
-                                {previewRows.length ? (
-                                  <Table size="small" rowKey="key" pagination={false} columns={timetableColumns} dataSource={previewRows} scroll={{ x: 900 }} />
-                                ) : (
-                                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前班级还没有可展示的正式课表。" />
-                                )}
+                                <Select placeholder="选择班级查看正式课表和草案课表" value={reviewClassId} options={classOptions} onChange={handleReviewClassChange} />
+                                {renderReviewTimetableBlock('正式课表', reviewClassLabel, previewRows, '正式课表还没有发布。')}
+                                <Divider style={{ margin: '6px 0' }} />
+                                {renderReviewTimetableBlock('草案课表', reviewClassLabel, draftRows, '当前班级还没有草案课表。')}
                               </Space>
                             ),
                           },
@@ -1362,6 +1440,7 @@ export default function ScheduleManage() {
                       <Space wrap>
                         <Button onClick={() => openConfigTab(!summaryCounts.plans ? 'plans' : 'arrangements')}>返回调整配置</Button>
                         <Button icon={<RobotOutlined />} loading={solveLoading} onClick={handleSolve}>重新生成草案</Button>
+                        <Button icon={<DownloadOutlined />} loading={draftExportLoading} disabled={!currentDraftId} onClick={handleExportDraft}>导出课表</Button>
                         <Button type="primary" icon={<SendOutlined />} loading={publishLoading} disabled={!canPublishCurrentDraft} onClick={handlePublishDraft}>发布为正式课表</Button>
                       </Space>
                     </Space>

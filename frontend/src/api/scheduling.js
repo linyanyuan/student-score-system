@@ -26,6 +26,8 @@ export const getScheduleTask = (taskId) => request.get(`/api/schedule/tasks/${ta
 
 export const getScheduleDraft = (draftId) => request.get(`/api/schedule/drafts/${draftId}`)
 export const getScheduleDraftItems = (draftId) => request.get(`/api/schedule/drafts/${draftId}/items`)
+export const exportScheduleDraft = (draftId) =>
+  request.get(`/api/schedule/drafts/${draftId}/export`, { responseType: 'blob' })
 export const publishScheduleDraft = (draftId) => request.post(`/api/schedule/drafts/${draftId}/publish`)
 
 export const createScheduleImport = (formData) =>

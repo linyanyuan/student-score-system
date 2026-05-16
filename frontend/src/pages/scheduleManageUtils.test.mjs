@@ -17,6 +17,17 @@ import {
 const schedulingApiSource = await readFile(new URL('../api/scheduling.js', import.meta.url), 'utf8')
 const scheduleManageSource = await readFile(new URL('./ScheduleManage.jsx', import.meta.url), 'utf8')
 
+assert.match(schedulingApiSource, /exportScheduleDraft/)
+assert.match(schedulingApiSource, /\/api\/schedule\/drafts\/\$\{draftId\}\/export/)
+assert.match(scheduleManageSource, /handleExportDraft/)
+assert.match(scheduleManageSource, /icon=\{<DownloadOutlined \/>\}[\s\S]*导出课表/)
+assert.match(scheduleManageSource, /value=\{reviewClassId\}[\s\S]*onChange=\{handleReviewClassChange\}/)
+assert.match(scheduleManageSource, /正式课表[\s\S]*正式课表还没有发布[\s\S]*草案课表/)
+assert.match(scheduleManageSource, /reviewClassLabel/)
+assert.match(scheduleManageSource, /renderReviewTimetableBlock/)
+assert.match(scheduleManageSource, /<TableOutlined style=\{\{ color: pageTokens\.primary \}\} \/>/)
+assert.match(scheduleManageSource, /renderReviewTimetableBlock\('正式课表'[\s\S]*renderReviewTimetableBlock\('草案课表'/)
+
 assert.deepEqual(parseForbiddenPeriods('1-1, 5-3'), [[1, 1], [5, 3]])
 assert.equal(formatForbiddenPeriods([[2, 4], [3, 1]]), '2-4,3-1')
 

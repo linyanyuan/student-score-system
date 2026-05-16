@@ -1,8 +1,10 @@
 ﻿import os
 import tempfile
 import unittest
+from io import BytesIO
 
 from fastapi.testclient import TestClient
+from openpyxl import load_workbook
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -12,6 +14,8 @@ from app.main import app
 from app.models.class_ import Class
 from app.models.lesson_plan import LessonPlan
 from app.models.school import School
+from app.models.schedule_draft import ScheduleDraft
+from app.models.schedule_draft_item import ScheduleDraftItem
 from app.models.schedule_period import SchedulePeriod
 from app.models.subject import Subject
 from app.models.teacher_class_subject import TeacherClassSubject
@@ -77,3 +81,49 @@ class SchedulingDraftApiTests(unittest.TestCase):
         response = self.client.post('/api/schedule/drafts/八年级/solve')
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()['status'], 'pending')
+
+    def test_export_draft_workbook_splits_classes_and_omits_teacher_names(self):
+        second_class = Class(name='2班', grade='八年级', school_id=self.school.id)
+        second_subject = Subject(name='语文', code='CHN', grades='八年级', school_id=self.school.id)
+        self.db.add_all([second_class, second_subject])
+        self.db.commit()
+        self.db.refresh(second_class)
+        self.db.refresh(second_subject)
+
+        draft = ScheduleDraft(school_id=self.school.id, grade='八年级', status='draft', score=100, created_by=self.admin.id)
+        self.db.add(draft)
+        self.db.flush()
+        first_period = self.db.query(SchedulePeriod).filter(SchedulePeriod.sort_order == 1).first()
+        second_period = self.db.query(SchedulePeriod).filter(SchedulePeriod.sort_order == 2).first()
+        self.db.add_all([
+            ScheduleDraftItem(
+                draft_id=draft.id,
+                class_id=self.class_obj.id,
+                teacher_id=self.teacher.id,
+                subject_id=self.subject.id,
+                weekday=1,
+                period_id=first_period.id,
+            ),
+            ScheduleDraftItem(
+                draft_id=draft.id,
+                class_id=second_class.id,
+                teacher_id=self.teacher.id,
+                subject_id=second_subject.id,
+                weekday=2,
+                period_id=second_period.id,
+            ),
+        ])
+        self.db.commit()
+
+        response = self.client.get(f'/api/schedule/drafts/{draft.id}/export')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('schedule-draft-', response.headers['content-disposition'])
+        workbook = load_workbook(BytesIO(response.content))
+        self.assertEqual(workbook.sheetnames, ['1班', '2班'])
+        first_sheet = workbook['1班']
+        second_sheet = workbook['2班']
+        self.assertEqual(first_sheet['A1'].value, '节次')
+        self.assertEqual(first_sheet['B2'].value, '数学')
+        self.assertNotIn('teacher_draft', [cell.value for row in first_sheet.iter_rows() for cell in row])
+        self.assertEqual(second_sheet['C3'].value, '语文')
