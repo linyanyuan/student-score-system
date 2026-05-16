@@ -9,6 +9,7 @@ from app.models.class_ import Class
 from app.models.lesson_plan import LessonPlan
 from app.models.lesson_plan_override import LessonPlanOverride
 from app.models.schedule_period import SchedulePeriod
+from app.models.schedule_period_plan import SchedulePeriodPlan
 from app.models.subject import Subject
 from app.models.teacher_class_subject import TeacherClassSubject
 from app.models.teacher_time_constraint import TeacherTimeConstraint
@@ -41,6 +42,22 @@ def decode_json_content(content: str | None) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def decode_period_plan_ids(content: str | None) -> list[int]:
+    payload = decode_json_content(content)
+    raw_ids = payload.get("period_ids") or []
+    result: list[int] = []
+    seen: set[int] = set()
+    for raw_id in raw_ids:
+        try:
+            period_id = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        if period_id > 0 and period_id not in seen:
+            result.append(period_id)
+            seen.add(period_id)
+    return result
+
+
 def _session_for_period(period: SchedulePeriod) -> str:
     start = str(period.start_time or "")
     try:
@@ -60,16 +77,23 @@ def load_scheduling_raw_config(db: Session, school_id: int, grade: str) -> dict[
     )
     class_ids = [item.id for item in classes]
 
-    periods = (
-        db.query(SchedulePeriod)
-        .filter(
+    period_plan = (
+        db.query(SchedulePeriodPlan)
+        .filter(SchedulePeriodPlan.school_id == school_id, SchedulePeriodPlan.grade == grade)
+        .first()
+    )
+    selected_period_ids = decode_period_plan_ids(period_plan.config) if period_plan else None
+    if selected_period_ids == []:
+        periods = []
+    else:
+        period_query = db.query(SchedulePeriod).filter(
             SchedulePeriod.school_id == school_id,
             SchedulePeriod.is_active == True,
             SchedulePeriod.include_in_auto_schedule == True,
         )
-        .order_by(SchedulePeriod.sort_order, SchedulePeriod.id)
-        .all()
-    )
+        if selected_period_ids is not None:
+            period_query = period_query.filter(SchedulePeriod.id.in_(selected_period_ids))
+        periods = period_query.order_by(SchedulePeriod.sort_order, SchedulePeriod.id).all()
     slots: list[dict[str, Any]] = []
     for weekday in range(1, 6):
         for period in periods:

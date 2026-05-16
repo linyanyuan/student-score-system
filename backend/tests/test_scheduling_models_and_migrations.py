@@ -13,5 +13,6 @@ class SchedulingPersistenceTests(unittest.TestCase):
         self.assertIn("lesson_plan_overrides", names)
         self.assertIn("teacher_time_constraints", names)
         self.assertIn("timetable_locks", names)
+        self.assertIn("schedule_period_plans", names)
         self.assertIn("schedule_drafts", names)
         self.assertIn("schedule_draft_items", names)

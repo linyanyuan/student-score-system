@@ -5,6 +5,9 @@ export const getScheduleTeachers = () => request.get('/api/auth/teachers')
 export const getLessonPlan = (grade) => request.get(`/api/schedule/lesson-plan/${encodeURIComponent(grade)}`)
 export const saveLessonPlan = (data) => request.post('/api/schedule/lesson-plan', data)
 
+export const getPeriodPlan = (grade) => request.get(`/api/schedule/period-plan/${encodeURIComponent(grade)}`)
+export const savePeriodPlan = (data) => request.post('/api/schedule/period-plan', data)
+
 export const getTeachingArrangement = (grade) =>
   request.get(`/api/schedule/teaching-arrangement/${encodeURIComponent(grade)}`)
 export const saveTeachingArrangement = (data) => request.post('/api/schedule/teaching-arrangement', data)
