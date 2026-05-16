@@ -73,17 +73,23 @@ def solve_schedule(problem: CompiledProblem, *, max_time_seconds: float = 10.0) 
             if vars_for_day:
                 model.Add(sum(vars_for_day) <= daily_limit)
 
+    subject_groups: dict[tuple[int, int], list[Any]] = {}
     for lesson in problem.lessons:
         if lesson.daily_max_hours <= 0 or lesson.daily_max_hours >= 99:
             continue
+        subject_groups.setdefault((lesson.class_id, lesson.subject_id), []).append(lesson)
+
+    for (class_id, subject_id), lessons in subject_groups.items():
+        daily_max_hours = min(lesson.daily_max_hours for lesson in lessons)
         for weekday in range(1, 6):
-            vars_for_day = [
-                lesson_slot_vars[(lesson.lesson_id, slot.key)]
-                for slot in lesson.candidate_slots
-                if slot.weekday == weekday
-            ]
+            vars_for_day = []
+            for lesson in lessons:
+                for slot in lesson.candidate_slots:
+                    if slot.weekday != weekday:
+                        continue
+                    vars_for_day.append(lesson_slot_vars[(lesson.lesson_id, slot.key)])
             if vars_for_day:
-                model.Add(sum(vars_for_day) <= 1)
+                model.Add(sum(vars_for_day) <= daily_max_hours)
 
     objective_terms = []
     for lesson in problem.lessons:

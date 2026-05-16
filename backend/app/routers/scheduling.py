@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import io
 import json
 from datetime import datetime
 from typing import Any
@@ -7,6 +8,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
+from openpyxl import Workbook
 from sqlalchemy import MetaData, Table
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -168,6 +170,22 @@ def _build_timetable_names(db: Session, rows: list[ScheduleDraftItem]) -> tuple[
     teacher_name_map = {item.id: item.username for item in db.query(User).filter(User.id.in_(teacher_ids)).all()} if teacher_ids else {}
     period_name_map = {item.id: item.name for item in db.query(SchedulePeriod).filter(SchedulePeriod.id.in_(period_ids)).all()} if period_ids else {}
     return class_name_map, subject_name_map, teacher_name_map, period_name_map
+
+
+def _safe_sheet_title(value: str, fallback: str, used_titles: set[str]) -> str:
+    title = "".join(ch for ch in (value or fallback) if ch not in r'[]:*?/\\').strip() or fallback
+    title = title[:31]
+    if title not in used_titles:
+        used_titles.add(title)
+        return title
+    base = title[:28]
+    index = 2
+    while True:
+        candidate = f"{base}-{index}"[:31]
+        if candidate not in used_titles:
+            used_titles.add(candidate)
+            return candidate
+        index += 1
 
 
 def _mark_task_failed(db: Session, task: ScheduleTask, message: str, *, error: str | None = None, result: dict[str, Any] | None = None) -> None:
@@ -531,6 +549,55 @@ def get_schedule_draft_items(draft_id: int, current_user: User = Depends(require
         for item in base_items
     ]
     return ScheduleDraftItemsResponse(items=items)
+
+
+@router.get("/drafts/{draft_id}/export")
+def export_schedule_draft(draft_id: int, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    draft = db.query(ScheduleDraft).filter(ScheduleDraft.id == draft_id, ScheduleDraft.school_id == school_id).first()
+    if not draft:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="draft not found")
+
+    rows = (
+        db.query(ScheduleDraftItem)
+        .filter(ScheduleDraftItem.draft_id == draft.id)
+        .order_by(ScheduleDraftItem.class_id, ScheduleDraftItem.weekday, ScheduleDraftItem.period_id)
+        .all()
+    )
+    class_name_map, subject_name_map, _teacher_name_map, _period_name_map = _build_timetable_names(db, rows)
+    period_ids = sorted({row.period_id for row in rows})
+    periods = db.query(SchedulePeriod).filter(SchedulePeriod.id.in_(period_ids)).order_by(SchedulePeriod.sort_order, SchedulePeriod.id).all() if period_ids else []
+    class_ids = sorted({row.class_id for row in rows}, key=lambda class_id: class_name_map.get(class_id, str(class_id)))
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    used_titles: set[str] = set()
+    weekdays = ["周一", "周二", "周三", "周四", "周五"]
+    for class_id in class_ids:
+        ws = wb.create_sheet(title=_safe_sheet_title(class_name_map.get(class_id, ""), f"班级{class_id}", used_titles))
+        ws.append(["节次", *weekdays])
+        class_rows = [row for row in rows if row.class_id == class_id]
+        item_map = {(row.weekday, row.period_id): row for row in class_rows}
+        for period in periods:
+            line = [period.name]
+            for weekday in range(1, 6):
+                item = item_map.get((weekday, period.id))
+                line.append(subject_name_map.get(item.subject_id, "") if item else "")
+            ws.append(line)
+
+    if not wb.sheetnames:
+        ws = wb.create_sheet(title="课表")
+        ws.append(["节次", *weekdays])
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"schedule-draft-{draft.grade}-{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.post("/drafts/{draft_id}/publish", response_model=PublishDraftResponse)
