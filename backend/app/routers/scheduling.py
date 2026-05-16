@@ -3,9 +3,10 @@
 import json
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from sqlalchemy import MetaData, Table
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -61,6 +62,7 @@ from app.schemas.scheduling import (
 from app.services.scheduling.compiler import compile_problem
 from app.services.scheduling.config_loader import decode_json_content, load_scheduling_raw_config
 from app.services.scheduling.cp_sat_solver import solve_schedule
+from app.services.scheduling.debug_export import build_scheduling_debug_package
 from app.services.scheduling.draft_service import create_draft_from_solution, serialize_draft, serialize_draft_items
 from app.services.scheduling.import_service import build_schedule_import_template, create_draft_from_import, create_import_from_upload, serialize_import_item, update_import_item
 from app.services.scheduling.publish_service import publish_draft
@@ -311,6 +313,20 @@ def save_locks(req: TimetableLockBatchSaveRequest, current_user: User = Depends(
         )
     db.commit()
     return TimetableLockBatchResponse(grade=req.grade, items=req.items)
+
+
+@router.get("/debug-config/{grade}/export")
+def export_schedule_debug_config(grade: str, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    raw_config = load_scheduling_raw_config(db, school_id, grade)
+    exported_at = datetime.now().isoformat()
+    payload = build_scheduling_debug_package(raw_config, grade=grade, exported_at=exported_at)
+    filename = f"schedule-debug-{grade}-{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
+    return Response(
+        content=_json_dumps(payload),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.get("/imports/template")

@@ -27,6 +27,7 @@ import {
   AppstoreOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  DownloadOutlined,
   EyeOutlined,
   FileExcelOutlined,
   LockOutlined,
@@ -47,6 +48,7 @@ import {
   createScheduleImport,
   createScheduleImportDraft,
   downloadScheduleImportTemplate,
+  exportScheduleDebugConfig,
   getClassTimetable,
   getLessonPlan,
   getLessonPlanOverrides,
@@ -313,6 +315,7 @@ export default function ScheduleManage() {
   const [saveLoading, setSaveLoading] = useState(false)
   const [solveLoading, setSolveLoading] = useState(false)
   const [publishLoading, setPublishLoading] = useState(false)
+  const [debugExportLoading, setDebugExportLoading] = useState(false)
   const [pageError, setPageError] = useState('')
   const [dirty, setDirty] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -801,6 +804,30 @@ export default function ScheduleManage() {
     }
   }
 
+  async function handleExportDebugConfig() {
+    if (!grade) return message.warning('请先选择年级')
+    if (dirty) return message.warning('请先保存配置后再导出调试包')
+
+    setDebugExportLoading(true)
+    try {
+      const response = await exportScheduleDebugConfig(grade)
+      const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '')
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/json' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `schedule-debug-${grade}-${timestamp}.json`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      message.success('排课调试包已导出')
+    } catch (error) {
+      message.error(error.message || '导出调试包失败')
+    } finally {
+      setDebugExportLoading(false)
+    }
+  }
+
   async function handleSaveImportItem(values) {
     if (!importTask || !editingImportItem) return
     setImportLoading(true)
@@ -1127,6 +1154,7 @@ export default function ScheduleManage() {
                   <Row gutter={[12, 12]}>
                     <Col xs={24} sm={12}><Button block icon={<ReloadOutlined />} loading={configLoading} onClick={() => setReloadTick((value) => value + 1)}>刷新配置</Button></Col>
                     <Col xs={24} sm={12}><Button block icon={<SaveOutlined />} loading={saveLoading} onClick={handleSaveAll}>保存配置</Button></Col>
+                    <Col xs={24} sm={12}><Button block icon={<DownloadOutlined />} loading={debugExportLoading} onClick={handleExportDebugConfig}>导出调试包</Button></Col>
                     <Col xs={24} sm={12}><Button block icon={<UploadOutlined />} disabled={!gradeOptions.length} onClick={handleOpenImportWizard}>上传已有课表</Button></Col>
                     <Col xs={24} sm={12}>
                       <Button
@@ -1195,6 +1223,9 @@ export default function ScheduleManage() {
                       extra={<Button type="primary" icon={<RobotOutlined />} disabled={!coreConfigReady} loading={solveLoading} onClick={handlePrimaryStageAction}>开始自动排课</Button>}
                     >
                       <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                        {task?.status === 'failed' ? (
+                          <Alert type="error" showIcon message={taskSnapshot.title} description={taskSnapshot.description} />
+                        ) : null}
                         {coreConfigReady ? (
                           <Alert type="success" showIcon message="当前已具备生成草案的基础条件" description={dirty ? '检测到未保存修改，建议先保存，再开始自动排课。' : '现在可以直接开始自动排课，也可以继续补充教师约束和锁定课位。'} />
                         ) : (

@@ -167,10 +167,11 @@ export function buildConfigWarnings({ plans = [], arrangements = [], subjects = 
 
 export function buildTaskSnapshot({ task, currentDraft, draftItems = [] }) {
   if (task?.status === 'failed') {
+    const diagnosticMessage = task.result?.diagnostics?.find((item) => item?.message)?.message
     return {
       tone: 'danger',
       title: '排课任务失败',
-      description: task.error || task.message || '请检查排课配置后重试。',
+      description: diagnosticMessage || task.error || task.message || '请检查排课配置后重试。',
       progress: Number(task.progress || 100),
       readyToPublish: false,
     }
