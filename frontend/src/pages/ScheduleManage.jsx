@@ -303,6 +303,7 @@ export default function ScheduleManage() {
   const [grade, setGrade] = useState('')
   const [plans, setPlans] = useState([createEmptyPlan()])
   const [arrangements, setArrangements] = useState([createEmptyArrangement()])
+  const [arrangementClassFilter, setArrangementClassFilter] = useState(undefined)
   const [overrides, setOverrides] = useState([createEmptyOverride()])
   const [teacherConstraints, setTeacherConstraints] = useState([createEmptyTeacherConstraint()])
   const [locks, setLocks] = useState([createEmptyLock()])
@@ -352,12 +353,19 @@ export default function ScheduleManage() {
   )
 
   const summaryCounts = buildSummaryCounts({ plans, arrangements, overrides, teacherConstraints, locks })
-  const configWarnings = buildConfigWarnings({ plans, arrangements, subjects, dirty })
   const taskSnapshot = buildTaskSnapshot({ task, currentDraft, draftItems })
   const gradeClasses = useMemo(() => classes.filter((item) => item.grade === grade), [classes, grade])
+  const configWarnings = buildConfigWarnings({ classes: gradeClasses, plans, arrangements, subjects, dirty })
   const classOptions = gradeClasses.map((item) => ({ label: `${item.grade}-${item.name}`, value: item.id }))
+  const arrangementRows = useMemo(() => arrangements.map((item, index) => ({ ...item, __index: index })), [arrangements])
+  const visibleArrangementRows = useMemo(
+    () => arrangementClassFilter ? arrangementRows.filter((item) => item.class_id === arrangementClassFilter) : arrangementRows,
+    [arrangementClassFilter, arrangementRows],
+  )
   const selectedDraftItems = reviewClassId ? draftItems.filter((item) => item.class_id === reviewClassId) : draftItems
-  const draftRows = buildTimetableRows(selectedDraftItems, periods)
+  const draftPeriodIds = new Set(selectedDraftItems.map((item) => item.period_id))
+  const reviewPeriods = periods.filter((item) => draftPeriodIds.has(item.id))
+  const draftRows = buildTimetableRows(selectedDraftItems, reviewPeriods)
   const reviewClassLabel = classOptions.find((item) => item.value === reviewClassId)?.label || '未选择班级'
   const importGradeClasses = classes.filter((item) => item.grade === importGrade)
   const importClassOptions = importGradeClasses.map((item) => ({ label: `${item.grade}-${item.name}`, value: item.id }))
@@ -376,11 +384,12 @@ export default function ScheduleManage() {
   const publishChecks = currentDraft?.publish_checks || []
   const blockingPublishChecks = publishChecks.filter((item) => item.blocking)
   const workspaceStage = useMemo(() => {
+    if (activeTab !== 'draft' && activeTab !== 'overview' && !solveLoading && !publishLoading) return 'prepare'
     if (task && !['success', 'failed'].includes(task.status)) return 'solving'
     if (currentDraft?.status === 'published') return 'published'
     if (currentDraftId || currentDraft) return 'review'
     return 'prepare'
-  }, [currentDraft, currentDraftId, task])
+  }, [activeTab, currentDraft, currentDraftId, publishLoading, solveLoading, task])
 
   useEffect(() => {
     if (!gradeClasses.length) {
@@ -1056,10 +1065,42 @@ export default function ScheduleManage() {
   ]
 
   const arrangementColumns = [
-    { title: '班级', dataIndex: 'class_id', width: 180, render: (_, record, index) => <Select allowClear placeholder="选择班级" value={record.class_id} options={classOptions} onChange={(value) => replaceRow(setArrangements, index, { class_id: value })} /> },
-    { title: '科目', dataIndex: 'subject_id', width: 180, render: (_, record, index) => <Select allowClear placeholder="选择科目" value={record.subject_id} options={subjectOptions} onChange={(value) => replaceRow(setArrangements, index, { subject_id: value })} /> },
-    { title: '教师', dataIndex: 'teacher_id', render: (_, record, index) => <Select allowClear placeholder="选择教师" value={record.teacher_id} options={teacherOptions} onChange={(value) => replaceRow(setArrangements, index, { teacher_id: value })} /> },
-    { title: '操作', key: 'actions', width: 70, fixed: 'right', render: (_, __, index) => <Button danger type="text" onClick={() => removeRow(setArrangements, index, createEmptyArrangement)}>删除</Button> },
+    {
+      title: '班级',
+      dataIndex: 'class_id',
+      width: 180,
+      render: (_, record, index) => {
+        const rowIndex = record.__index ?? index
+        return <Select allowClear placeholder="选择班级" value={record.class_id} options={classOptions} onChange={(value) => replaceRow(setArrangements, rowIndex, { class_id: value })} />
+      },
+    },
+    {
+      title: '科目',
+      dataIndex: 'subject_id',
+      width: 180,
+      render: (_, record, index) => {
+        const rowIndex = record.__index ?? index
+        return <Select allowClear placeholder="选择科目" value={record.subject_id} options={subjectOptions} onChange={(value) => replaceRow(setArrangements, rowIndex, { subject_id: value })} />
+      },
+    },
+    {
+      title: '教师',
+      dataIndex: 'teacher_id',
+      render: (_, record, index) => {
+        const rowIndex = record.__index ?? index
+        return <Select allowClear placeholder="选择教师" value={record.teacher_id} options={teacherOptions} onChange={(value) => replaceRow(setArrangements, rowIndex, { teacher_id: value })} />
+      },
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 70,
+      fixed: 'right',
+      render: (_, record, index) => {
+        const rowIndex = record.__index ?? index
+        return <Button danger type="text" onClick={() => removeRow(setArrangements, rowIndex, createEmptyArrangement)}>删除</Button>
+      },
+    },
   ]
 
   const overrideColumns = [
@@ -1175,8 +1216,25 @@ export default function ScheduleManage() {
       key: 'arrangements',
       label: <Space size={6}><span>任课安排</span><Tag bordered={false}>{summaryCounts.arrangements}</Tag></Space>,
       children: (
-        <SectionCard eyebrow="TEACHING MAP" title="班级-科目-教师分配" description="自动排课前，先把授课关系梳理清楚。这里越完整，草案越稳定。" extra={<Button onClick={() => addRow(setArrangements, createEmptyArrangement)}>新增安排</Button>}>
-          <Table size="middle" rowKey={(_, index) => `arrangement-${index}`} pagination={false} columns={arrangementColumns} dataSource={arrangements} scroll={{ x: 780 }} />
+        <SectionCard
+          eyebrow="TEACHING MAP"
+          title="班级-科目-教师分配"
+          description="自动排课前，先把授课关系梳理清楚。这里越完整，草案越稳定。"
+          extra={(
+            <Space wrap>
+              <Select
+                allowClear
+                style={{ width: 180 }}
+                placeholder="按班级筛选"
+                value={arrangementClassFilter}
+                options={classOptions}
+                onChange={setArrangementClassFilter}
+              />
+              <Button onClick={() => addRow(setArrangements, createEmptyArrangement)}>新增安排</Button>
+            </Space>
+          )}
+        >
+          <Table size="middle" rowKey={(record, index) => `arrangement-${record.__index ?? index}`} pagination={false} columns={arrangementColumns} dataSource={visibleArrangementRows} scroll={{ x: 780 }} />
         </SectionCard>
       ),
     },
@@ -1499,7 +1557,7 @@ export default function ScheduleManage() {
                         ]}
                       />
                       <Space wrap>
-                        <Button onClick={() => openConfigTab(!summaryCounts.plans ? 'plans' : 'arrangements')}>返回调整配置</Button>
+                        <Button onClick={() => openConfigTab(nextAction.tab === 'draft' ? 'periods' : nextAction.tab)}>返回调整配置</Button>
                         <Button icon={<RobotOutlined />} loading={solveLoading} onClick={handleSolve}>重新生成草案</Button>
                         <Button icon={<DownloadOutlined />} loading={draftExportLoading} disabled={!currentDraftId} onClick={handleExportDraft}>导出课表</Button>
                         <Button type="primary" icon={<SendOutlined />} loading={publishLoading} disabled={!canPublishCurrentDraft} onClick={handlePublishDraft}>发布为正式课表</Button>

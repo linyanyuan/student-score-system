@@ -140,7 +140,61 @@ export function findArrangementSubjectsMissingPlans({ plans = [], arrangements =
   }))
 }
 
-export function buildConfigWarnings({ plans = [], arrangements = [], subjects = [], dirty = false }) {
+export function findPlanSubjectsMissingArrangements({ plans = [], arrangements = [], subjects = [] }) {
+  const arrangedSubjectIds = new Set(
+    (arrangements || [])
+      .filter((item) => item?.class_id && item?.subject_id && item?.teacher_id)
+      .map((item) => Number(item.subject_id || 0))
+      .filter(Boolean),
+  )
+  const subjectNameMap = new Map((subjects || []).map((item) => [Number(item.id), item.name]))
+  const missingSubjectIds = [
+    ...new Set(
+      (plans || [])
+        .filter((item) => item?.subject_id)
+        .map((item) => Number(item.subject_id || 0))
+        .filter((subjectId) => subjectId && !arrangedSubjectIds.has(subjectId)),
+    ),
+  ]
+
+  return missingSubjectIds.map((subjectId) => ({
+    subject_id: subjectId,
+    subject_name: subjectNameMap.get(subjectId) || `科目 ${subjectId}`,
+  }))
+}
+
+export function findClassPlanSubjectsMissingArrangements({ classes = [], plans = [], arrangements = [], subjects = [] }) {
+  const subjectNameMap = new Map((subjects || []).map((item) => [Number(item.id), item.name]))
+  const arrangedByClass = new Map()
+  for (const item of arrangements || []) {
+    if (!item?.class_id || !item?.subject_id || !item?.teacher_id) continue
+    const classId = Number(item.class_id)
+    if (!arrangedByClass.has(classId)) arrangedByClass.set(classId, new Set())
+    arrangedByClass.get(classId).add(Number(item.subject_id))
+  }
+
+  const gaps = []
+  for (const classItem of classes || []) {
+    const classId = Number(classItem?.id || 0)
+    if (!classId) continue
+    const arrangedSubjects = arrangedByClass.get(classId) || new Set()
+    for (const plan of plans || []) {
+      const subjectId = Number(plan?.subject_id || 0)
+      const weeklyHours = Number(plan?.weekly_hours || 0)
+      if (!subjectId || weeklyHours <= 0 || arrangedSubjects.has(subjectId)) continue
+      gaps.push({
+        class_id: classId,
+        class_name: classItem.name || `班级 ${classId}`,
+        subject_id: subjectId,
+        subject_name: subjectNameMap.get(subjectId) || `科目 ${subjectId}`,
+        weekly_hours: weeklyHours,
+      })
+    }
+  }
+  return gaps
+}
+
+export function buildConfigWarnings({ classes = [], plans = [], arrangements = [], subjects = [], dirty = false }) {
   const warnings = []
   const summaryCounts = buildSummaryCounts({ plans, arrangements })
 
@@ -156,6 +210,22 @@ export function buildConfigWarnings({ plans = [], arrangements = [], subjects = 
   if (missingPlanSubjects.length) {
     const names = missingPlanSubjects.map((item) => item.subject_name).join('、')
     warnings.push(`有 ${missingPlanSubjects.length} 门任课科目未配置课时规则，本次不会自动排课：${names}`)
+  }
+
+  const missingArrangementSubjects = findPlanSubjectsMissingArrangements({ plans, arrangements, subjects })
+  if (missingArrangementSubjects.length) {
+    const names = missingArrangementSubjects.map((item) => item.subject_name).join('、')
+    warnings.push(`有 ${missingArrangementSubjects.length} 门课时计划科目尚未配置任课安排，本次不会自动排课：${names}`)
+  }
+
+  const classArrangementGaps = findClassPlanSubjectsMissingArrangements({ classes, plans, arrangements, subjects })
+  if (classArrangementGaps.length) {
+    const examples = classArrangementGaps
+      .slice(0, 5)
+      .map((item) => `${item.class_name}-${item.subject_name} ${item.weekly_hours}节`)
+      .join('、')
+    const suffix = classArrangementGaps.length > 5 ? ' 等' : ''
+    warnings.push(`有 ${classArrangementGaps.length} 个班级科目缺少任课安排，本次会少排对应课时：${examples}${suffix}`)
   }
 
   if (dirty) {

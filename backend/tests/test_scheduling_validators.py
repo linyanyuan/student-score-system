@@ -6,7 +6,7 @@ from app.services.scheduling.validators import validate_compiled_problem
 
 
 class SchedulingValidatorTests(unittest.TestCase):
-    def test_missing_lesson_plan_is_non_blocking_skipped_subject_notice(self):
+    def test_missing_lesson_plan_blocks_autoschedule_with_subject_notice(self):
         diagnostics = validate_raw_config(
             {
                 "classes": [{"id": 1, "name": "Class 1"}],
@@ -25,10 +25,34 @@ class SchedulingValidatorTests(unittest.TestCase):
             diagnostics[0]["message"],
             "科目 Dao Fa (ID 16) 未配置年级基础课时规则，本次不会自动排课",
         )
-        self.assertFalse(diagnostics[0]["blocking"])
+        self.assertTrue(diagnostics[0]["blocking"])
         self.assertEqual(diagnostics[0]["entity"]["subject_id"], 16)
         self.assertEqual(diagnostics[0]["entity"]["subject_name"], "Dao Fa")
         self.assertEqual(diagnostics[0]["entity"]["base_plan_subject_ids"], [2])
+
+    def test_missing_class_arrangement_for_lesson_plan_blocks_autoschedule(self):
+        diagnostics = validate_raw_config(
+            {
+                "classes": [{"id": 1, "name": "八七班"}, {"id": 2, "name": "八八班"}],
+                "slots": [{"weekday": 1, "period_id": 1}],
+                "arrangements": [
+                    {"class_id": 1, "subject_id": 2, "teacher_id": 10, "subject_name": "语文"},
+                    {"class_id": 2, "subject_id": 2, "teacher_id": 11, "subject_name": "语文"},
+                    {"class_id": 1, "subject_id": 15, "teacher_id": 12, "subject_name": "班会"},
+                ],
+                "lesson_plans": [
+                    {"class_id": 0, "subject_id": 2, "weekly_hours": 5, "subject_name": "语文"},
+                    {"class_id": 0, "subject_id": 15, "weekly_hours": 1, "subject_name": "班会"},
+                ],
+            }
+        )
+
+        missing = [item for item in diagnostics if item["code"] == "missing_teaching_arrangement"]
+        self.assertEqual(len(missing), 1)
+        self.assertTrue(missing[0]["blocking"])
+        self.assertEqual(missing[0]["entity"]["class_id"], 2)
+        self.assertEqual(missing[0]["entity"]["subject_id"], 15)
+        self.assertEqual(missing[0]["entity"]["weekly_hours"], 1)
 
     def test_compiled_validation_reports_class_capacity_shortage(self):
         slots = [CompiledSlot(key=(1, 1), weekday=1, period_id=1)]

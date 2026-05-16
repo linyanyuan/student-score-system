@@ -31,20 +31,58 @@ def validate_raw_config(raw_config: dict[str, Any]) -> list[dict[str, Any]]:
 
     base_plan_subject_ids = {int(item.get("subject_id") or 0) for item in lesson_plans if int(item.get("class_id") or 0) == 0}
     sorted_base_plan_subject_ids = sorted(subject_id for subject_id in base_plan_subject_ids if subject_id)
+    class_name_by_id = {int(item.get("id") or 0): str(item.get("name") or "").strip() for item in classes}
+    arrangements_by_class: dict[int, set[int]] = defaultdict(set)
+    subject_names: dict[int, str] = {}
     for arrangement in arrangements:
+        class_id = int(arrangement.get("class_id") or 0)
         subject_id = int(arrangement.get("subject_id") or 0)
+        subject_name = str(arrangement.get("subject_name") or "").strip()
+        if class_id and subject_id:
+            arrangements_by_class[class_id].add(subject_id)
+        if subject_id and subject_name:
+            subject_names.setdefault(subject_id, subject_name)
         if subject_id and subject_id not in base_plan_subject_ids:
-            subject_name = str(arrangement.get("subject_name") or "").strip()
             subject_label = f"{subject_name} (ID {subject_id})" if subject_name else str(subject_id)
             diagnostics.append(
                 _diag(
                     "missing_lesson_plan",
                     f"科目 {subject_label} 未配置年级基础课时规则，本次不会自动排课",
-                    blocking=False,
+                    blocking=True,
                     entity={
                         "subject_id": subject_id,
                         "subject_name": subject_name,
                         "base_plan_subject_ids": sorted_base_plan_subject_ids,
+                    },
+                )
+            )
+
+    for plan in lesson_plans:
+        if int(plan.get("class_id") or 0) != 0:
+            continue
+        subject_id = int(plan.get("subject_id") or 0)
+        weekly_hours = int(plan.get("weekly_hours") or 0)
+        if not subject_id or weekly_hours <= 0:
+            continue
+        subject_name = str(plan.get("subject_name") or "").strip() or subject_names.get(subject_id, "")
+        subject_label = f"{subject_name} (ID {subject_id})" if subject_name else str(subject_id)
+        for class_item in classes:
+            class_id = int(class_item.get("id") or 0)
+            if not class_id or subject_id in arrangements_by_class.get(class_id, set()):
+                continue
+            class_name = class_name_by_id.get(class_id, "")
+            class_label = f"{class_name} (ID {class_id})" if class_name else str(class_id)
+            diagnostics.append(
+                _diag(
+                    "missing_teaching_arrangement",
+                    f"班级 {class_label} 未配置科目 {subject_label} 的任课安排，本次少排 {weekly_hours} 节",
+                    blocking=True,
+                    entity={
+                        "class_id": class_id,
+                        "class_name": class_name,
+                        "subject_id": subject_id,
+                        "subject_name": subject_name,
+                        "weekly_hours": weekly_hours,
                     },
                 )
             )
