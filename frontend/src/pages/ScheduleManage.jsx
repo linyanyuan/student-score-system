@@ -53,6 +53,7 @@ import {
   getClassTimetable,
   getLessonPlan,
   getLessonPlanOverrides,
+  getPeriodPlan,
   getScheduleDraft,
   getScheduleDraftItems,
   getScheduleTask,
@@ -65,6 +66,7 @@ import {
   publishScheduleDraft,
   saveLessonPlan,
   saveLessonPlanOverrides,
+  savePeriodPlan,
   saveTeacherConstraints,
   saveTeachingArrangement,
   saveTimetableLocks,
@@ -297,6 +299,7 @@ export default function ScheduleManage() {
   const [subjects, setSubjects] = useState([])
   const [teachers, setTeachers] = useState([])
   const [periods, setPeriods] = useState([])
+  const [periodPlanIds, setPeriodPlanIds] = useState([])
   const [grade, setGrade] = useState('')
   const [plans, setPlans] = useState([createEmptyPlan()])
   const [arrangements, setArrangements] = useState([createEmptyArrangement()])
@@ -361,10 +364,15 @@ export default function ScheduleManage() {
   const subjectOptions = subjects.map((item) => ({ label: item.name, value: item.id }))
   const teacherOptions = teachers.map((item) => ({ label: item.username, value: item.id }))
   const periodOptions = periods.map((item) => ({ label: item.name, value: item.id }))
+  const autoPeriodOptions = periods
+    .filter((item) => item.is_active && item.include_in_auto_schedule)
+    .map((item) => ({ label: `${item.name} ${item.start_time}-${item.end_time}`, value: item.id }))
+  const selectedAutoPeriods = periods.filter((item) => periodPlanIds.includes(item.id))
+  const periodPlanCapacity = selectedAutoPeriods.length * 5
   const importIssues = summarizeImportIssues(importItems)
   const importReadyForDraft = canCreateImportDraft(importItems)
   const filteredImportItems = useMemo(() => filterImportItemsByStatus(importItems, importStatusFilter), [importItems, importStatusFilter])
-  const coreConfigReady = summaryCounts.plans > 0 && summaryCounts.arrangements > 0
+  const coreConfigReady = summaryCounts.plans > 0 && summaryCounts.arrangements > 0 && periodPlanIds.length > 0
   const publishChecks = currentDraft?.publish_checks || []
   const blockingPublishChecks = publishChecks.filter((item) => item.blocking)
   const workspaceStage = useMemo(() => {
@@ -397,9 +405,9 @@ export default function ScheduleManage() {
   }, [reviewClassId, workspaceStage])
 
   const readinessPercent = useMemo(() => {
-    const checkpoints = [Boolean(grade), summaryCounts.plans > 0, summaryCounts.arrangements > 0, !dirty]
+    const checkpoints = [Boolean(grade), periodPlanIds.length > 0, summaryCounts.plans > 0, summaryCounts.arrangements > 0, !dirty]
     return Math.round((checkpoints.filter(Boolean).length / checkpoints.length) * 100)
-  }, [dirty, grade, summaryCounts.arrangements, summaryCounts.plans])
+  }, [dirty, grade, periodPlanIds.length, summaryCounts.arrangements, summaryCounts.plans])
 
   const nextAction = useMemo(() => {
     if (!grade) {
@@ -414,6 +422,13 @@ export default function ScheduleManage() {
         title: '补齐课时计划',
         description: '先定义每个学科的周课时、单日上限和禁排时段，求解器才能建立基础规则。',
         tab: 'plans',
+      }
+    }
+    if (!periodPlanIds.length) {
+      return {
+        title: '配置节次计划',
+        description: '选择当前年级自动排课实际使用的节次，例如每天 7 节时只勾选第1节到第7节。',
+        tab: 'periods',
       }
     }
     if (!summaryCounts.arrangements) {
@@ -442,10 +457,15 @@ export default function ScheduleManage() {
       description: '草案已生成，建议先检查锁定命中率、风险数和正式课表预览，再决定是否发布。',
       tab: 'draft',
     }
-  }, [activeTab, currentDraft, dirty, grade, summaryCounts.arrangements, summaryCounts.plans])
+  }, [activeTab, currentDraft, dirty, grade, periodPlanIds.length, summaryCounts.arrangements, summaryCounts.plans])
 
   function markDirty() {
     setDirty(true)
+  }
+
+  function handlePeriodPlanChange(values) {
+    setPeriodPlanIds(values)
+    markDirty()
   }
 
   function replaceRow(setter, index, patch) {
@@ -515,8 +535,9 @@ export default function ScheduleManage() {
       setConfigLoading(true)
       setPageError('')
       try {
-        const [plansResp, arrangementsResp, overridesResp, constraintsResp, locksResp] = await Promise.all([
+        const [plansResp, periodPlanResp, arrangementsResp, overridesResp, constraintsResp, locksResp] = await Promise.all([
           getLessonPlan(grade),
+          getPeriodPlan(grade),
           getTeachingArrangement(grade),
           getLessonPlanOverrides(grade),
           getTeacherConstraints(grade),
@@ -525,6 +546,7 @@ export default function ScheduleManage() {
         if (cancelled) return
 
         setPlans(normalizePlans(plansResp.data?.items || []))
+        setPeriodPlanIds(periodPlanResp.data?.period_ids || [])
         setArrangements(normalizeArrangements(arrangementsResp.data?.items || []))
         setOverrides(normalizeOverrides(overridesResp.data?.items || []))
         setTeacherConstraints(normalizeTeacherConstraints(constraintsResp.data?.items || []))
@@ -581,6 +603,10 @@ export default function ScheduleManage() {
               preferred_session: item.preferred_session || 'any',
               forbidden_periods: parseForbiddenPeriods(item.forbidden_periods_text),
             })),
+        }),
+        savePeriodPlan({
+          grade,
+          period_ids: periodPlanIds.map((item) => Number(item)),
         }),
         saveTeachingArrangement({
           grade,
@@ -1066,6 +1092,7 @@ export default function ScheduleManage() {
   ]
 
   const overviewItems = [
+    { key: 'periods', title: '节次计划', metric: `${selectedAutoPeriods.length} 节/天`, description: '配置本次自动排课实际使用的一天节次数，可按年级选择 7 节或 8 节。' },
     { key: 'plans', title: '课时计划', metric: `${summaryCounts.plans} 条`, description: '配置学科周课时、单日上限、偏好时段和禁排时段。' },
     { key: 'arrangements', title: '任课安排', metric: `${summaryCounts.arrangements} 条`, description: '明确班级、科目与教师的映射关系，是排课求解的核心输入。' },
     { key: 'constraints', title: '教师约束', metric: `${summaryCounts.teacherConstraints} 条`, description: '限制教师每日最大课时，并为特殊教师配置优先或禁排时段。' },
@@ -1094,6 +1121,40 @@ export default function ScheduleManage() {
             </Row>
           </SectionCard>
         </Space>
+      ),
+    },
+    {
+      key: 'periods',
+      label: <Space size={6}><span>节次计划</span><Tag bordered={false}>{selectedAutoPeriods.length}</Tag></Space>,
+      children: (
+        <SectionCard
+          eyebrow="PERIOD PLAN"
+          title="年级节次计划"
+          description="这里定义当前年级自动排课实际使用的一天节次数。全校节次模板可以保留 8 节，但本次排课只使用选中的节次。"
+        >
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Alert
+              type={periodPlanIds.length ? 'info' : 'warning'}
+              showIcon
+              message={periodPlanIds.length ? `当前每天参与排课 ${selectedAutoPeriods.length} 节` : '请至少选择一个参与排课的节次'}
+              description={`按周一至周五计算，当前自动排课容量为 ${periodPlanCapacity} 个课位。`}
+            />
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: '100%' }}
+              placeholder="选择参与自动排课的节次"
+              value={periodPlanIds}
+              options={autoPeriodOptions}
+              onChange={handlePeriodPlanChange}
+            />
+            <Row gutter={[12, 12]}>
+              <Col xs={24} md={8}><ReviewStatCard title="每日节次" value={selectedAutoPeriods.length} helper="当前年级自动排课使用" /></Col>
+              <Col xs={24} md={8}><ReviewStatCard title="周容量" value={periodPlanCapacity} helper="按周一至周五计算" /></Col>
+              <Col xs={24} md={8}><ReviewStatCard title="全校模板" value={autoPeriodOptions.length} helper="可参与自动排课的节次" /></Col>
+            </Row>
+          </Space>
+        </SectionCard>
       ),
     },
     {

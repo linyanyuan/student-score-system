@@ -94,6 +94,16 @@ class TimetableLockBatchResponse(BaseModel):
     items: list[TimetableLockItem]
 
 
+class PeriodPlanSaveRequest(BaseModel):
+    grade: str
+    period_ids: list[int] = Field(default_factory=list)
+
+
+class PeriodPlanResponse(BaseModel):
+    grade: str
+    period_ids: list[int] = Field(default_factory=list)
+
+
 class ScheduleTaskCreateResponse(BaseModel):
     task_id: int
     status: str

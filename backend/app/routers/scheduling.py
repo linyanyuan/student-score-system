@@ -23,6 +23,7 @@ from app.models.schedule_draft_item import ScheduleDraftItem
 from app.models.schedule_import import ScheduleImport
 from app.models.schedule_import_item import ScheduleImportItem
 from app.models.schedule_period import SchedulePeriod
+from app.models.schedule_period_plan import SchedulePeriodPlan
 from app.models.schedule_task import ScheduleTask
 from app.models.subject import Subject
 from app.models.teacher_class_subject import TeacherClassSubject
@@ -40,6 +41,8 @@ from app.schemas.scheduling import (
     LessonPlanOverrideBatchResponse,
     LessonPlanOverrideBatchSaveRequest,
     LessonPlanOverrideItem,
+    PeriodPlanResponse,
+    PeriodPlanSaveRequest,
     PublishDraftResponse,
     ScheduleDraftItemsResponse,
     ScheduleDraftResponse,
@@ -62,7 +65,7 @@ from app.schemas.scheduling import (
     TimetableLockItem,
 )
 from app.services.scheduling.compiler import compile_problem
-from app.services.scheduling.config_loader import decode_json_content, load_scheduling_raw_config
+from app.services.scheduling.config_loader import decode_json_content, decode_period_plan_ids, load_scheduling_raw_config
 from app.services.scheduling.cp_sat_solver import solve_schedule
 from app.services.scheduling.debug_export import build_scheduling_debug_package
 from app.services.scheduling.draft_service import create_draft_from_solution, serialize_draft, serialize_draft_items
@@ -136,6 +139,35 @@ def _encode_lesson_plan(item: LessonPlanConfig | LessonPlanOverrideItem | Teache
     return _json_dumps(payload)
 
 
+def _available_auto_period_ids(db: Session, school_id: int) -> list[int]:
+    rows = (
+        db.query(SchedulePeriod)
+        .filter(
+            SchedulePeriod.school_id == school_id,
+            SchedulePeriod.is_active == True,
+            SchedulePeriod.include_in_auto_schedule == True,
+        )
+        .order_by(SchedulePeriod.sort_order, SchedulePeriod.id)
+        .all()
+    )
+    return [int(row.id) for row in rows]
+
+
+def _normalize_period_ids(period_ids: list[int], available_ids: list[int]) -> list[int]:
+    available = set(available_ids)
+    result: list[int] = []
+    seen: set[int] = set()
+    for raw_id in period_ids:
+        period_id = int(raw_id)
+        if period_id in seen:
+            continue
+        if period_id not in available:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="节次计划包含不可用节次")
+        result.append(period_id)
+        seen.add(period_id)
+    return result
+
+
 def _build_lesson_plan_row_values(grade: str, school_id: int, item: LessonPlanConfig, lesson_plan_table: Table, *, include_timestamps: bool) -> dict[str, Any]:
     now = datetime.now()
     values: dict[str, Any] = {
@@ -207,6 +239,36 @@ def get_lesson_plan(grade: str, current_user: User = Depends(require_school_admi
         payload = decode_json_content(row.content)
         items.append(LessonPlanConfig(subject_id=row.subject_id, **payload))
     return LessonPlanBatchResponse(grade=grade, items=items)
+
+
+@router.get("/period-plan/{grade}", response_model=PeriodPlanResponse)
+def get_period_plan(grade: str, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    row = (
+        db.query(SchedulePeriodPlan)
+        .filter(SchedulePeriodPlan.school_id == school_id, SchedulePeriodPlan.grade == grade)
+        .first()
+    )
+    period_ids = decode_period_plan_ids(row.config) if row else _available_auto_period_ids(db, school_id)
+    return PeriodPlanResponse(grade=grade, period_ids=period_ids)
+
+
+@router.post("/period-plan", response_model=PeriodPlanResponse)
+def save_period_plan(req: PeriodPlanSaveRequest, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    available_ids = _available_auto_period_ids(db, school_id)
+    period_ids = _normalize_period_ids(req.period_ids, available_ids)
+    row = (
+        db.query(SchedulePeriodPlan)
+        .filter(SchedulePeriodPlan.school_id == school_id, SchedulePeriodPlan.grade == req.grade)
+        .first()
+    )
+    if row is None:
+        row = SchedulePeriodPlan(school_id=school_id, grade=req.grade)
+        db.add(row)
+    row.config = _json_dumps({"period_ids": period_ids})
+    db.commit()
+    return PeriodPlanResponse(grade=req.grade, period_ids=period_ids)
 
 
 @router.post("/lesson-plan", response_model=LessonPlanBatchResponse)
