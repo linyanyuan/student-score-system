@@ -10,7 +10,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment, Border, Font, Side
 from sqlalchemy import MetaData, Table
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -288,10 +288,10 @@ def _style_schedule_sheet(ws, max_row: int, max_col: int = 6) -> None:
         ws.column_dimensions[chr(64 + column_index)].width = 14
     ws.row_dimensions[1].height = 30
     ws.row_dimensions[2].height = 26
+    ws.row_dimensions[3].height = 32
 
     thin = Side(style="thin", color="000000")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    header_fill = PatternFill("solid", fgColor="F7F7F7")
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     ws["A1"].font = Font(name="SimSun", size=20, bold=True)
@@ -304,8 +304,7 @@ def _style_schedule_sheet(ws, max_row: int, max_col: int = 6) -> None:
             cell.border = border
             cell.alignment = center
             cell.font = Font(name="SimSun", size=11, bold=True)
-            if cell.row == 3:
-                cell.fill = header_fill
+    ws["A3"].border = Border(left=thin, right=thin, top=thin, bottom=thin, diagonal=thin, diagonalDown=True)
     ws.freeze_panes = "B4"
 
 
@@ -729,7 +728,8 @@ def export_schedule_draft(draft_id: int, current_user: User = Depends(require_sc
         ws = wb.create_sheet(title=_safe_sheet_title(class_title, f"班级{class_id}", used_titles))
         ws.append(["课 程 表", "", "", "", "", ""])
         ws.append([class_title, "", "", "", "", ""])
-        ws.append(["节次", *weekdays])
+        ws.append(["节次 星期", *weekdays])
+        ws.append(["早读", "", "", "", "", ""])
         class_rows = [row for row in rows if row.class_id == class_id]
         item_map = {(row.weekday, row.period_id): row for row in class_rows}
         lunch_inserted = False
@@ -744,13 +744,16 @@ def export_schedule_draft(draft_id: int, current_user: User = Depends(require_sc
                 item = item_map.get((weekday, period.id))
                 line.append(subject_name_map.get(item.subject_id, "") if item else "")
             ws.append(line)
+        ws.append(["晚自习", "", "", "", "", ""])
         _style_schedule_sheet(ws, ws.max_row)
 
     if not wb.sheetnames:
         ws = wb.create_sheet(title="课表")
         ws.append(["课 程 表", "", "", "", "", ""])
         ws.append(["课表", "", "", "", "", ""])
-        ws.append(["节次", *weekdays])
+        ws.append(["节次 星期", *weekdays])
+        ws.append(["早读", "", "", "", "", ""])
+        ws.append(["晚自习", "", "", "", "", ""])
         _style_schedule_sheet(ws, ws.max_row)
 
     buf = io.BytesIO()
