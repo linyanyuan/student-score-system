@@ -89,6 +89,10 @@ class SchedulingDraftApiTests(unittest.TestCase):
         self.db.commit()
         self.db.refresh(second_class)
         self.db.refresh(second_subject)
+        afternoon_period = SchedulePeriod(name='第5节', start_time='13:40', end_time='14:25', school_id=self.school.id, sort_order=5, is_active=True, include_in_auto_schedule=True)
+        self.db.add(afternoon_period)
+        self.db.commit()
+        self.db.refresh(afternoon_period)
 
         draft = ScheduleDraft(school_id=self.school.id, grade='八年级', status='draft', score=100, created_by=self.admin.id)
         self.db.add(draft)
@@ -112,6 +116,14 @@ class SchedulingDraftApiTests(unittest.TestCase):
                 weekday=2,
                 period_id=second_period.id,
             ),
+            ScheduleDraftItem(
+                draft_id=draft.id,
+                class_id=self.class_obj.id,
+                teacher_id=self.teacher.id,
+                subject_id=self.subject.id,
+                weekday=3,
+                period_id=afternoon_period.id,
+            ),
         ])
         self.db.commit()
 
@@ -125,13 +137,17 @@ class SchedulingDraftApiTests(unittest.TestCase):
         second_sheet = workbook['2班']
         self.assertEqual(first_sheet['A1'].value, '课 程 表')
         self.assertEqual(first_sheet['A2'].value, '1班')
-        self.assertEqual(first_sheet['A3'].value, '节次')
-        self.assertEqual(first_sheet['B4'].value, '数学')
+        self.assertEqual(first_sheet['A3'].value, '节次 星期')
+        self.assertEqual(first_sheet['A4'].value, '早读')
+        self.assertEqual(first_sheet['B5'].value, '数学')
+        self.assertEqual(first_sheet['A7'].value, '午休')
+        self.assertEqual(first_sheet['D8'].value, '数学')
+        self.assertEqual(first_sheet['A9'].value, '晚自习')
         self.assertTrue(first_sheet['A1'].font.bold)
-        self.assertEqual(first_sheet['B4'].alignment.horizontal, 'center')
-        self.assertEqual(first_sheet['A3'].border.left.style, 'thin')
+        self.assertEqual(first_sheet['B5'].alignment.horizontal, 'center')
+        self.assertEqual(first_sheet['A3'].border.diagonal.style, 'thin')
         self.assertNotIn('teacher_draft', [cell.value for row in first_sheet.iter_rows() for cell in row])
-        self.assertEqual(second_sheet['C5'].value, '语文')
+        self.assertEqual(second_sheet['C6'].value, '语文')
 
     def test_export_draft_sorts_chinese_class_sheets_by_class_number(self):
         classes = [
