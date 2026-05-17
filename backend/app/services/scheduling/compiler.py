@@ -71,15 +71,28 @@ def _build_slots(raw_config: dict[str, Any]) -> list[CompiledSlot]:
     return slots
 
 
-def _normalize_forbidden(values: list[list[int]] | None) -> set[SlotKey]:
+def _normalize_forbidden(values: list[list[int]] | None, slots: list[CompiledSlot]) -> set[SlotKey]:
+    slot_keys = {slot.key for slot in slots}
     result: set[SlotKey] = set()
     for item in values or []:
         if not isinstance(item, (list, tuple)) or len(item) != 2:
             continue
         try:
-            result.add((int(item[0]), int(item[1])))
+            weekday = int(item[0])
+            period_value = int(item[1])
         except (TypeError, ValueError):
             continue
+        if weekday <= 0:
+            for slot in slots:
+                if slot.period_id == period_value or slot.period_order == period_value:
+                    result.add(slot.key)
+            continue
+        if (weekday, period_value) in slot_keys:
+            result.add((weekday, period_value))
+            continue
+        for slot in slots:
+            if slot.weekday == weekday and slot.period_order == period_value:
+                result.add(slot.key)
     return result
 
 
@@ -96,7 +109,7 @@ def compile_problem(raw_config: dict[str, Any]) -> CompiledProblem:
     for item in teacher_constraints:
         teacher_id = int(item.get("teacher_id"))
         teacher_daily_limits[teacher_id] = int(item.get("daily_max_hours") or 0)
-        teacher_forbidden_slots[teacher_id] = _normalize_forbidden(item.get("forbidden_periods") or item.get("forbidden_slots") or [])
+        teacher_forbidden_slots[teacher_id] = _normalize_forbidden(item.get("forbidden_periods") or item.get("forbidden_slots") or [], slots)
 
     plan_map: dict[tuple[int, int], dict[str, Any]] = {}
     for plan in lesson_plans:
@@ -131,7 +144,7 @@ def compile_problem(raw_config: dict[str, Any]) -> CompiledProblem:
             continue
         preferred_session = str(plan.get("preferred_session") or arrangement.get("preferred_session") or "any")
         daily_max_hours = int(plan.get("daily_max_hours") or arrangement.get("daily_max_hours") or 99)
-        forbidden_slots = _normalize_forbidden(plan.get("forbidden_periods") or arrangement.get("forbidden_periods") or [])
+        forbidden_slots = _normalize_forbidden(plan.get("forbidden_periods") or arrangement.get("forbidden_periods") or [], slots)
         lock_group = list(locks_by_group.get((class_id, subject_id, teacher_id), []))
 
         for index in range(weekly_hours):

@@ -22,6 +22,9 @@ const scheduleManageSource = await readFile(new URL('./ScheduleManage.jsx', impo
 assert.match(scheduleManageSource, /arrangementClassFilter/)
 assert.match(scheduleManageSource, /visibleArrangementRows/)
 assert.match(scheduleManageSource, /dataSource=\{visibleArrangementRows\}/)
+assert.match(scheduleManageSource, /ForbiddenPeriodSelect/)
+assert.match(scheduleManageSource, /每天\$\{period\.name\}/)
+assert.match(scheduleManageSource, /setArrangementClassFilter\(firstClassId\)/)
 assert.match(schedulingApiSource, /exportScheduleDraft/)
 assert.match(schedulingApiSource, /\/api\/schedule\/drafts\/\$\{draftId\}\/export/)
 assert.match(scheduleManageSource, /handleExportDraft/)
@@ -34,7 +37,10 @@ assert.match(scheduleManageSource, /<TableOutlined style=\{\{ color: pageTokens\
 assert.match(scheduleManageSource, /renderReviewTimetableBlock\('正式课表'[\s\S]*renderReviewTimetableBlock\('草案课表'/)
 
 assert.deepEqual(parseForbiddenPeriods('1-1, 5-3'), [[1, 1], [5, 3]])
+assert.deepEqual(parseForbiddenPeriods('*-11, 2-13'), [[0, 11], [2, 13]])
+assert.deepEqual(parseForbiddenPeriods('11'), [[0, 11]])
 assert.equal(formatForbiddenPeriods([[2, 4], [3, 1]]), '2-4,3-1')
+assert.equal(formatForbiddenPeriods([[0, 11], [2, 13]]), '*-11,2-13')
 
 assert.deepEqual(
   buildTimetableRows([

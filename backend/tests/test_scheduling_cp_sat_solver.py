@@ -46,6 +46,82 @@ class CompilerTests(unittest.TestCase):
         self.assertEqual(compiled.locked_assignments[0]["weekday"], 2)
         self.assertEqual(compiled.teacher_daily_limits[301], 4)
 
+    def test_compile_problem_expands_forbidden_period_order_for_every_weekday(self):
+        from app.services.scheduling.compiler import compile_problem
+
+        raw_config = {
+            "grade": "八年级",
+            "classes": [{"id": 101, "name": "1班"}],
+            "periods": [
+                {"id": 11, "weekday": 1, "period_order": 1, "session": "morning"},
+                {"id": 12, "weekday": 1, "period_order": 2, "session": "morning"},
+                {"id": 11, "weekday": 2, "period_order": 1, "session": "morning"},
+                {"id": 12, "weekday": 2, "period_order": 2, "session": "morning"},
+            ],
+            "arrangements": [
+                {
+                    "class_id": 101,
+                    "subject_id": 201,
+                    "teacher_id": 301,
+                    "weekly_hours": 1,
+                    "subject_name": "体育",
+                }
+            ],
+            "lesson_plans": [
+                {
+                    "class_id": 0,
+                    "subject_id": 201,
+                    "weekly_hours": 1,
+                    "forbidden_periods": [[0, 1]],
+                }
+            ],
+            "teacher_constraints": [],
+            "locks": [],
+        }
+
+        compiled = compile_problem(raw_config)
+
+        self.assertTrue(compiled.lessons)
+        self.assertEqual({slot.period_order for slot in compiled.lessons[0].candidate_slots}, {2})
+
+    def test_compile_problem_maps_weekday_period_order_to_real_period_id(self):
+        from app.services.scheduling.compiler import compile_problem
+
+        raw_config = {
+            "grade": "八年级",
+            "classes": [{"id": 101, "name": "1班"}],
+            "periods": [
+                {"id": 11, "weekday": 1, "period_order": 1, "session": "morning"},
+                {"id": 12, "weekday": 1, "period_order": 2, "session": "morning"},
+                {"id": 11, "weekday": 2, "period_order": 1, "session": "morning"},
+                {"id": 12, "weekday": 2, "period_order": 2, "session": "morning"},
+            ],
+            "arrangements": [
+                {
+                    "class_id": 101,
+                    "subject_id": 201,
+                    "teacher_id": 301,
+                    "weekly_hours": 1,
+                    "subject_name": "体育",
+                }
+            ],
+            "lesson_plans": [
+                {
+                    "class_id": 0,
+                    "subject_id": 201,
+                    "weekly_hours": 1,
+                    "forbidden_periods": [[2, 1]],
+                }
+            ],
+            "teacher_constraints": [],
+            "locks": [],
+        }
+
+        compiled = compile_problem(raw_config)
+
+        self.assertNotIn((2, 11), {slot.key for slot in compiled.lessons[0].candidate_slots})
+        self.assertIn((1, 11), {slot.key for slot in compiled.lessons[0].candidate_slots})
+
 
 class CpSatSolverTests(unittest.TestCase):
     def test_solver_enforces_subject_daily_max_by_class_and_subject(self):

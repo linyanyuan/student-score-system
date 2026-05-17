@@ -50,7 +50,13 @@ export function parseForbiddenPeriods(text) {
     .map((item) => item.trim())
     .filter(Boolean)
     .map((item) => {
-      const [weekday, periodId] = item.split('-').map(Number)
+      if (!item.includes('-')) {
+        const periodId = Number(item)
+        return Number.isInteger(periodId) ? [0, periodId] : null
+      }
+      const [weekdayText, periodText] = item.split('-')
+      const weekday = weekdayText === '*' ? 0 : Number(weekdayText)
+      const periodId = Number(periodText)
       if (!Number.isInteger(weekday) || !Number.isInteger(periodId)) {
         return null
       }
@@ -66,7 +72,7 @@ export function formatForbiddenPeriods(periods) {
 
   return periods
     .filter((item) => Array.isArray(item) && item.length === 2)
-    .map(([weekday, periodId]) => `${weekday}-${periodId}`)
+    .map(([weekday, periodId]) => `${Number(weekday) <= 0 ? '*' : weekday}-${periodId}`)
     .join(',')
 }
 
