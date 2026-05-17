@@ -10,7 +10,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy import MetaData, Table
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -280,6 +280,45 @@ def _is_afternoon_period(period: SchedulePeriod) -> bool:
     return hour_text.isdigit() and int(hour_text) >= 12
 
 
+def _export_periods_for_draft(db: Session, school_id: int, grade: str, rows: list[ScheduleDraftItem]) -> list[SchedulePeriod]:
+    period_plan = (
+        db.query(SchedulePeriodPlan)
+        .filter(SchedulePeriodPlan.school_id == school_id, SchedulePeriodPlan.grade == grade)
+        .first()
+    )
+    if period_plan:
+        selected_period_ids = decode_period_plan_ids(period_plan.config)
+        if not selected_period_ids:
+            return []
+        return (
+            db.query(SchedulePeriod)
+            .filter(
+                SchedulePeriod.school_id == school_id,
+                SchedulePeriod.is_active == True,  # noqa: E712
+                SchedulePeriod.include_in_auto_schedule == True,  # noqa: E712
+                SchedulePeriod.id.in_(selected_period_ids),
+            )
+            .order_by(SchedulePeriod.sort_order, SchedulePeriod.id)
+            .all()
+        )
+
+    configured_periods = (
+        db.query(SchedulePeriod)
+        .filter(
+            SchedulePeriod.school_id == school_id,
+            SchedulePeriod.is_active == True,  # noqa: E712
+            SchedulePeriod.include_in_auto_schedule == True,  # noqa: E712
+        )
+        .order_by(SchedulePeriod.sort_order, SchedulePeriod.id)
+        .all()
+    )
+    if configured_periods:
+        return configured_periods
+
+    period_ids = sorted({row.period_id for row in rows})
+    return db.query(SchedulePeriod).filter(SchedulePeriod.id.in_(period_ids)).order_by(SchedulePeriod.sort_order, SchedulePeriod.id).all() if period_ids else []
+
+
 def _style_schedule_sheet(ws, max_row: int, max_col: int = 6) -> None:
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
     ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=max_col)
@@ -288,10 +327,10 @@ def _style_schedule_sheet(ws, max_row: int, max_col: int = 6) -> None:
         ws.column_dimensions[chr(64 + column_index)].width = 14
     ws.row_dimensions[1].height = 30
     ws.row_dimensions[2].height = 26
-    ws.row_dimensions[3].height = 32
 
     thin = Side(style="thin", color="000000")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_fill = PatternFill("solid", fgColor="F7F7F7")
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
     ws["A1"].font = Font(name="SimSun", size=20, bold=True)
@@ -304,7 +343,8 @@ def _style_schedule_sheet(ws, max_row: int, max_col: int = 6) -> None:
             cell.border = border
             cell.alignment = center
             cell.font = Font(name="SimSun", size=11, bold=True)
-    ws["A3"].border = Border(left=thin, right=thin, top=thin, bottom=thin, diagonal=thin, diagonalDown=True)
+            if cell.row == 3:
+                cell.fill = header_fill
     ws.freeze_panes = "B4"
 
 
@@ -715,8 +755,7 @@ def export_schedule_draft(draft_id: int, current_user: User = Depends(require_sc
         .all()
     )
     class_name_map, subject_name_map, _teacher_name_map, _period_name_map = _build_timetable_names(db, rows)
-    period_ids = sorted({row.period_id for row in rows})
-    periods = db.query(SchedulePeriod).filter(SchedulePeriod.id.in_(period_ids)).order_by(SchedulePeriod.sort_order, SchedulePeriod.id).all() if period_ids else []
+    periods = _export_periods_for_draft(db, school_id, draft.grade, rows)
     class_ids = sorted({row.class_id for row in rows}, key=lambda class_id: _class_sheet_sort_key(class_id, class_name_map))
 
     wb = Workbook()
@@ -728,8 +767,7 @@ def export_schedule_draft(draft_id: int, current_user: User = Depends(require_sc
         ws = wb.create_sheet(title=_safe_sheet_title(class_title, f"班级{class_id}", used_titles))
         ws.append(["课 程 表", "", "", "", "", ""])
         ws.append([class_title, "", "", "", "", ""])
-        ws.append(["节次 星期", *weekdays])
-        ws.append(["早读", "", "", "", "", ""])
+        ws.append(["节次", *weekdays])
         class_rows = [row for row in rows if row.class_id == class_id]
         item_map = {(row.weekday, row.period_id): row for row in class_rows}
         lunch_inserted = False
@@ -744,16 +782,13 @@ def export_schedule_draft(draft_id: int, current_user: User = Depends(require_sc
                 item = item_map.get((weekday, period.id))
                 line.append(subject_name_map.get(item.subject_id, "") if item else "")
             ws.append(line)
-        ws.append(["晚自习", "", "", "", "", ""])
         _style_schedule_sheet(ws, ws.max_row)
 
     if not wb.sheetnames:
         ws = wb.create_sheet(title="课表")
         ws.append(["课 程 表", "", "", "", "", ""])
         ws.append(["课表", "", "", "", "", ""])
-        ws.append(["节次 星期", *weekdays])
-        ws.append(["早读", "", "", "", "", ""])
-        ws.append(["晚自习", "", "", "", "", ""])
+        ws.append(["节次", *weekdays])
         _style_schedule_sheet(ws, ws.max_row)
 
     buf = io.BytesIO()
