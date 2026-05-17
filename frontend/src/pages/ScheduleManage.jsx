@@ -294,6 +294,40 @@ function ImportIssueTags({ flags = [] }) {
   )
 }
 
+function ForbiddenPeriodSelect({ value, periods, onChange, placeholder = '选择禁排时段' }) {
+  const options = [
+    ...periods.map((period) => ({
+      label: `每天${period.name}`,
+      value: `*-${period.id}`,
+    })),
+    ...WEEKDAY_OPTIONS.flatMap((weekday) =>
+      periods.map((period) => ({
+        label: `${weekday.label} ${period.name}`,
+        value: `${weekday.value}-${period.id}`,
+      })),
+    ),
+  ]
+  const selectedValues = String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  return (
+    <Select
+      mode="multiple"
+      allowClear
+      showSearch
+      style={{ width: '100%' }}
+      placeholder={placeholder}
+      value={selectedValues}
+      options={options}
+      optionFilterProp="label"
+      maxTagCount="responsive"
+      onChange={(nextValues) => onChange(nextValues.join(','))}
+    />
+  )
+}
+
 export default function ScheduleManage() {
   const [classes, setClasses] = useState([])
   const [subjects, setSubjects] = useState([])
@@ -487,6 +521,11 @@ export default function ScheduleManage() {
     markDirty()
   }
 
+  function handleAddArrangement() {
+    setArrangements((current) => [...current, { ...createEmptyArrangement(), class_id: arrangementClassFilter }])
+    markDirty()
+  }
+
   function removeRow(setter, index, factory) {
     setter((current) => {
       const next = current.filter((_, currentIndex) => currentIndex !== index)
@@ -534,6 +573,17 @@ export default function ScheduleManage() {
       if (pollingRef.current) clearInterval(pollingRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    const firstClassId = gradeClasses[0]?.id
+    if (!firstClassId) {
+      if (arrangementClassFilter !== undefined) setArrangementClassFilter(undefined)
+      return
+    }
+    if (!gradeClasses.some((item) => item.id === arrangementClassFilter)) {
+      setArrangementClassFilter(firstClassId)
+    }
+  }, [arrangementClassFilter, gradeClasses])
 
   useEffect(() => {
     if (!grade) return
@@ -1060,7 +1110,7 @@ export default function ScheduleManage() {
     { title: '周课时', dataIndex: 'weekly_hours', width: 110, render: (_, record, index) => <InputNumber min={0} max={30} style={{ width: '100%' }} value={record.weekly_hours} onChange={(value) => replaceRow(setPlans, index, { weekly_hours: value ?? 0 })} /> },
     { title: '单日上限', dataIndex: 'daily_max_hours', width: 110, render: (_, record, index) => <InputNumber min={0} max={10} style={{ width: '100%' }} value={record.daily_max_hours} onChange={(value) => replaceRow(setPlans, index, { daily_max_hours: value ?? 0 })} /> },
     { title: '偏好时段', dataIndex: 'preferred_session', width: 130, render: (_, record, index) => <Select value={record.preferred_session} options={SESSION_OPTIONS} onChange={(value) => replaceRow(setPlans, index, { preferred_session: value })} /> },
-    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <Input placeholder="例如 1-1,5-3" value={record.forbidden_periods_text} onChange={(event) => replaceRow(setPlans, index, { forbidden_periods_text: event.target.value })} /> },
+    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <ForbiddenPeriodSelect periods={periods} value={record.forbidden_periods_text} onChange={(value) => replaceRow(setPlans, index, { forbidden_periods_text: value })} /> },
     { title: '操作', key: 'actions', width: 70, fixed: 'right', render: (_, __, index) => <Button danger type="text" onClick={() => removeRow(setPlans, index, createEmptyPlan)}>删除</Button> },
   ]
 
@@ -1109,15 +1159,15 @@ export default function ScheduleManage() {
     { title: '周课时', dataIndex: 'weekly_hours', width: 110, render: (_, record, index) => <InputNumber min={0} max={30} style={{ width: '100%' }} value={record.weekly_hours} onChange={(value) => replaceRow(setOverrides, index, { weekly_hours: value ?? 0 })} /> },
     { title: '单日上限', dataIndex: 'daily_max_hours', width: 110, render: (_, record, index) => <InputNumber min={0} max={10} style={{ width: '100%' }} value={record.daily_max_hours} onChange={(value) => replaceRow(setOverrides, index, { daily_max_hours: value ?? 0 })} /> },
     { title: '偏好时段', dataIndex: 'preferred_session', width: 130, render: (_, record, index) => <Select value={record.preferred_session} options={SESSION_OPTIONS} onChange={(value) => replaceRow(setOverrides, index, { preferred_session: value })} /> },
-    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <Input placeholder="例如 2-1,4-3" value={record.forbidden_periods_text} onChange={(event) => replaceRow(setOverrides, index, { forbidden_periods_text: event.target.value })} /> },
+    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <ForbiddenPeriodSelect periods={periods} value={record.forbidden_periods_text} onChange={(value) => replaceRow(setOverrides, index, { forbidden_periods_text: value })} /> },
     { title: '操作', key: 'actions', width: 70, fixed: 'right', render: (_, __, index) => <Button danger type="text" onClick={() => removeRow(setOverrides, index, createEmptyOverride)}>删除</Button> },
   ]
 
   const teacherConstraintColumns = [
     { title: '教师', dataIndex: 'teacher_id', width: 180, render: (_, record, index) => <Select allowClear placeholder="选择教师" value={record.teacher_id} options={teacherOptions} onChange={(value) => replaceRow(setTeacherConstraints, index, { teacher_id: value })} /> },
     { title: '单日最大课时', dataIndex: 'daily_max_hours', width: 130, render: (_, record, index) => <InputNumber min={0} max={12} style={{ width: '100%' }} value={record.daily_max_hours} onChange={(value) => replaceRow(setTeacherConstraints, index, { daily_max_hours: value ?? 0 })} /> },
-    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <Input placeholder="例如 1-2,3-4" value={record.forbidden_periods_text} onChange={(event) => replaceRow(setTeacherConstraints, index, { forbidden_periods_text: event.target.value })} /> },
-    { title: '优先时段', dataIndex: 'preferred_periods_text', render: (_, record, index) => <Input placeholder="例如 1-1,2-1" value={record.preferred_periods_text} onChange={(event) => replaceRow(setTeacherConstraints, index, { preferred_periods_text: event.target.value })} /> },
+    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <ForbiddenPeriodSelect periods={periods} value={record.forbidden_periods_text} onChange={(value) => replaceRow(setTeacherConstraints, index, { forbidden_periods_text: value })} /> },
+    { title: '优先时段', dataIndex: 'preferred_periods_text', render: (_, record, index) => <ForbiddenPeriodSelect periods={periods} value={record.preferred_periods_text} placeholder="选择优先时段" onChange={(value) => replaceRow(setTeacherConstraints, index, { preferred_periods_text: value })} /> },
     { title: '操作', key: 'actions', width: 70, fixed: 'right', render: (_, __, index) => <Button danger type="text" onClick={() => removeRow(setTeacherConstraints, index, createEmptyTeacherConstraint)}>删除</Button> },
   ]
 
@@ -1223,14 +1273,13 @@ export default function ScheduleManage() {
           extra={(
             <Space wrap>
               <Select
-                allowClear
                 style={{ width: 180 }}
                 placeholder="按班级筛选"
                 value={arrangementClassFilter}
                 options={classOptions}
                 onChange={setArrangementClassFilter}
               />
-              <Button onClick={() => addRow(setArrangements, createEmptyArrangement)}>新增安排</Button>
+              <Button onClick={handleAddArrangement}>新增安排</Button>
             </Space>
           )}
         >
