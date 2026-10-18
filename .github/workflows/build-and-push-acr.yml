@@ -41,6 +41,8 @@ jobs:
         with:
           context: ./backend
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.BACKEND_IMAGE }}:${{ env.IMAGE_TAG }}
             ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.BACKEND_IMAGE }}:latest-prod
@@ -50,6 +52,8 @@ jobs:
         with:
           context: ./frontend
           push: true
+          provenance: false
+          sbom: false
           tags: |
             ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.FRONTEND_IMAGE }}:${{ env.IMAGE_TAG }}
             ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.FRONTEND_IMAGE }}:latest-prod
