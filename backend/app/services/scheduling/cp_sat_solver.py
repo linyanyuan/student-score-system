@@ -6,13 +6,25 @@ from typing import Any
 from app.services.scheduling.compiler import CompiledProblem
 from app.services.scheduling.scoring import SolverWeights, lesson_slot_penalty
 
-try:
-    from ortools.sat.python import cp_model
-except Exception as exc:  # pragma: no cover
-    cp_model = None
-    ORTOOLS_IMPORT_ERROR = exc
-else:  # pragma: no cover
-    ORTOOLS_IMPORT_ERROR = None
+# ortools 会连带加载 pandas + numpy，实测约 62MB 常驻内存（占进程一半以上）。
+# 排课求解属于低频功能，因此改为懒加载：模块导入时不触发，
+# 只有真正调用 solve_schedule() 时才加载。
+cp_model: Any = None
+
+
+def _ensure_cp_model() -> Any:
+    """首次调用时加载 ortools（CP-SAT），之后复用已加载的模块。"""
+    global cp_model
+    if cp_model is not None:
+        return cp_model
+    try:
+        from ortools.sat.python import cp_model as _cp_model
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(
+            f"OR-Tools 未安装，无法执行 CP-SAT 求解: {exc}"
+        ) from exc
+    cp_model = _cp_model
+    return cp_model
 
 
 @dataclass
@@ -24,8 +36,8 @@ class SolverResult:
 
 
 def solve_schedule(problem: CompiledProblem, *, max_time_seconds: float = 10.0) -> SolverResult:
-    if cp_model is None:
-        raise RuntimeError(f"OR-Tools 未安装，无法执行 CP-SAT 求解: {ORTOOLS_IMPORT_ERROR}")
+    # 懒加载 ortools；局部变量遮蔽模块级 cp_model，函数体后续代码无需改动
+    cp_model = _ensure_cp_model()
 
     model = cp_model.CpModel()
     weights = SolverWeights()
