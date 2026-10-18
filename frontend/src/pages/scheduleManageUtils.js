@@ -50,7 +50,13 @@ export function parseForbiddenPeriods(text) {
     .map((item) => item.trim())
     .filter(Boolean)
     .map((item) => {
-      const [weekday, periodId] = item.split('-').map(Number)
+      if (!item.includes('-')) {
+        const periodId = Number(item)
+        return Number.isInteger(periodId) ? [0, periodId] : null
+      }
+      const [weekdayText, periodText] = item.split('-')
+      const weekday = weekdayText === '*' ? 0 : Number(weekdayText)
+      const periodId = Number(periodText)
       if (!Number.isInteger(weekday) || !Number.isInteger(periodId)) {
         return null
       }
@@ -66,7 +72,7 @@ export function formatForbiddenPeriods(periods) {
 
   return periods
     .filter((item) => Array.isArray(item) && item.length === 2)
-    .map(([weekday, periodId]) => `${weekday}-${periodId}`)
+    .map(([weekday, periodId]) => `${Number(weekday) <= 0 ? '*' : weekday}-${periodId}`)
     .join(',')
 }
 
@@ -118,7 +124,83 @@ export function buildSummaryCounts({ plans = [], arrangements = [], overrides = 
   }
 }
 
-export function buildConfigWarnings({ plans = [], arrangements = [], dirty = false }) {
+export function findArrangementSubjectsMissingPlans({ plans = [], arrangements = [], subjects = [] }) {
+  const plannedSubjectIds = new Set(
+    (plans || [])
+      .map((item) => Number(item?.subject_id || 0))
+      .filter(Boolean),
+  )
+  const subjectNameMap = new Map((subjects || []).map((item) => [Number(item.id), item.name]))
+  const missingSubjectIds = [
+    ...new Set(
+      (arrangements || [])
+        .filter((item) => item?.class_id && item?.subject_id && item?.teacher_id)
+        .map((item) => Number(item.subject_id || 0))
+        .filter((subjectId) => subjectId && !plannedSubjectIds.has(subjectId)),
+    ),
+  ]
+
+  return missingSubjectIds.map((subjectId) => ({
+    subject_id: subjectId,
+    subject_name: subjectNameMap.get(subjectId) || `科目 ${subjectId}`,
+  }))
+}
+
+export function findPlanSubjectsMissingArrangements({ plans = [], arrangements = [], subjects = [] }) {
+  const arrangedSubjectIds = new Set(
+    (arrangements || [])
+      .filter((item) => item?.class_id && item?.subject_id && item?.teacher_id)
+      .map((item) => Number(item.subject_id || 0))
+      .filter(Boolean),
+  )
+  const subjectNameMap = new Map((subjects || []).map((item) => [Number(item.id), item.name]))
+  const missingSubjectIds = [
+    ...new Set(
+      (plans || [])
+        .filter((item) => item?.subject_id)
+        .map((item) => Number(item.subject_id || 0))
+        .filter((subjectId) => subjectId && !arrangedSubjectIds.has(subjectId)),
+    ),
+  ]
+
+  return missingSubjectIds.map((subjectId) => ({
+    subject_id: subjectId,
+    subject_name: subjectNameMap.get(subjectId) || `科目 ${subjectId}`,
+  }))
+}
+
+export function findClassPlanSubjectsMissingArrangements({ classes = [], plans = [], arrangements = [], subjects = [] }) {
+  const subjectNameMap = new Map((subjects || []).map((item) => [Number(item.id), item.name]))
+  const arrangedByClass = new Map()
+  for (const item of arrangements || []) {
+    if (!item?.class_id || !item?.subject_id || !item?.teacher_id) continue
+    const classId = Number(item.class_id)
+    if (!arrangedByClass.has(classId)) arrangedByClass.set(classId, new Set())
+    arrangedByClass.get(classId).add(Number(item.subject_id))
+  }
+
+  const gaps = []
+  for (const classItem of classes || []) {
+    const classId = Number(classItem?.id || 0)
+    if (!classId) continue
+    const arrangedSubjects = arrangedByClass.get(classId) || new Set()
+    for (const plan of plans || []) {
+      const subjectId = Number(plan?.subject_id || 0)
+      const weeklyHours = Number(plan?.weekly_hours || 0)
+      if (!subjectId || weeklyHours <= 0 || arrangedSubjects.has(subjectId)) continue
+      gaps.push({
+        class_id: classId,
+        class_name: classItem.name || `班级 ${classId}`,
+        subject_id: subjectId,
+        subject_name: subjectNameMap.get(subjectId) || `科目 ${subjectId}`,
+        weekly_hours: weeklyHours,
+      })
+    }
+  }
+  return gaps
+}
+
+export function buildConfigWarnings({ classes = [], plans = [], arrangements = [], subjects = [], dirty = false }) {
   const warnings = []
   const summaryCounts = buildSummaryCounts({ plans, arrangements })
 
@@ -130,6 +212,28 @@ export function buildConfigWarnings({ plans = [], arrangements = [], dirty = fal
     warnings.push('尚未配置任课安排')
   }
 
+  const missingPlanSubjects = findArrangementSubjectsMissingPlans({ plans, arrangements, subjects })
+  if (missingPlanSubjects.length) {
+    const names = missingPlanSubjects.map((item) => item.subject_name).join('、')
+    warnings.push(`有 ${missingPlanSubjects.length} 门任课科目未配置课时规则，本次不会自动排课：${names}`)
+  }
+
+  const missingArrangementSubjects = findPlanSubjectsMissingArrangements({ plans, arrangements, subjects })
+  if (missingArrangementSubjects.length) {
+    const names = missingArrangementSubjects.map((item) => item.subject_name).join('、')
+    warnings.push(`有 ${missingArrangementSubjects.length} 门课时计划科目尚未配置任课安排，本次不会自动排课：${names}`)
+  }
+
+  const classArrangementGaps = findClassPlanSubjectsMissingArrangements({ classes, plans, arrangements, subjects })
+  if (classArrangementGaps.length) {
+    const examples = classArrangementGaps
+      .slice(0, 5)
+      .map((item) => `${item.class_name}-${item.subject_name} ${item.weekly_hours}节`)
+      .join('、')
+    const suffix = classArrangementGaps.length > 5 ? ' 等' : ''
+    warnings.push(`有 ${classArrangementGaps.length} 个班级科目缺少任课安排，本次会少排对应课时：${examples}${suffix}`)
+  }
+
   if (dirty) {
     warnings.push('当前修改尚未保存')
   }
@@ -139,10 +243,11 @@ export function buildConfigWarnings({ plans = [], arrangements = [], dirty = fal
 
 export function buildTaskSnapshot({ task, currentDraft, draftItems = [] }) {
   if (task?.status === 'failed') {
+    const diagnosticMessage = task.result?.diagnostics?.find((item) => item?.message)?.message
     return {
       tone: 'danger',
       title: '排课任务失败',
-      description: task.error || task.message || '请检查排课配置后重试。',
+      description: diagnosticMessage || task.error || task.message || '请检查排课配置后重试。',
       progress: Number(task.progress || 100),
       readyToPublish: false,
     }

@@ -1,11 +1,16 @@
 ﻿from __future__ import annotations
 
+import io
 import json
+import re
 from datetime import datetime
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from sqlalchemy import MetaData, Table
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -20,6 +25,7 @@ from app.models.schedule_draft_item import ScheduleDraftItem
 from app.models.schedule_import import ScheduleImport
 from app.models.schedule_import_item import ScheduleImportItem
 from app.models.schedule_period import SchedulePeriod
+from app.models.schedule_period_plan import SchedulePeriodPlan
 from app.models.schedule_task import ScheduleTask
 from app.models.subject import Subject
 from app.models.teacher_class_subject import TeacherClassSubject
@@ -37,6 +43,8 @@ from app.schemas.scheduling import (
     LessonPlanOverrideBatchResponse,
     LessonPlanOverrideBatchSaveRequest,
     LessonPlanOverrideItem,
+    PeriodPlanResponse,
+    PeriodPlanSaveRequest,
     PublishDraftResponse,
     ScheduleDraftItemsResponse,
     ScheduleDraftResponse,
@@ -59,8 +67,9 @@ from app.schemas.scheduling import (
     TimetableLockItem,
 )
 from app.services.scheduling.compiler import compile_problem
-from app.services.scheduling.config_loader import decode_json_content, load_scheduling_raw_config
+from app.services.scheduling.config_loader import decode_json_content, decode_period_plan_ids, load_scheduling_raw_config
 from app.services.scheduling.cp_sat_solver import solve_schedule
+from app.services.scheduling.debug_export import build_scheduling_debug_package
 from app.services.scheduling.draft_service import create_draft_from_solution, serialize_draft, serialize_draft_items
 from app.services.scheduling.import_service import build_schedule_import_template, create_draft_from_import, create_import_from_upload, serialize_import_item, update_import_item
 from app.services.scheduling.publish_service import publish_draft
@@ -132,6 +141,35 @@ def _encode_lesson_plan(item: LessonPlanConfig | LessonPlanOverrideItem | Teache
     return _json_dumps(payload)
 
 
+def _available_auto_period_ids(db: Session, school_id: int) -> list[int]:
+    rows = (
+        db.query(SchedulePeriod)
+        .filter(
+            SchedulePeriod.school_id == school_id,
+            SchedulePeriod.is_active == True,
+            SchedulePeriod.include_in_auto_schedule == True,
+        )
+        .order_by(SchedulePeriod.sort_order, SchedulePeriod.id)
+        .all()
+    )
+    return [int(row.id) for row in rows]
+
+
+def _normalize_period_ids(period_ids: list[int], available_ids: list[int]) -> list[int]:
+    available = set(available_ids)
+    result: list[int] = []
+    seen: set[int] = set()
+    for raw_id in period_ids:
+        period_id = int(raw_id)
+        if period_id in seen:
+            continue
+        if period_id not in available:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="节次计划包含不可用节次")
+        result.append(period_id)
+        seen.add(period_id)
+    return result
+
+
 def _build_lesson_plan_row_values(grade: str, school_id: int, item: LessonPlanConfig, lesson_plan_table: Table, *, include_timestamps: bool) -> dict[str, Any]:
     now = datetime.now()
     values: dict[str, Any] = {
@@ -168,6 +206,148 @@ def _build_timetable_names(db: Session, rows: list[ScheduleDraftItem]) -> tuple[
     return class_name_map, subject_name_map, teacher_name_map, period_name_map
 
 
+def _safe_sheet_title(value: str, fallback: str, used_titles: set[str]) -> str:
+    title = "".join(ch for ch in (value or fallback) if ch not in r'[]:*?/\\').strip() or fallback
+    title = title[:31]
+    if title not in used_titles:
+        used_titles.add(title)
+        return title
+    base = title[:28]
+    index = 2
+    while True:
+        candidate = f"{base}-{index}"[:31]
+        if candidate not in used_titles:
+            used_titles.add(candidate)
+            return candidate
+        index += 1
+
+
+_CHINESE_DIGITS = {
+    "一": 1,
+    "二": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+
+
+def _parse_standard_chinese_number(value: str) -> int | None:
+    if not value:
+        return None
+    if value == "十":
+        return 10
+    if "十" in value:
+        left, right = value.split("十", 1)
+        tens = _CHINESE_DIGITS.get(left, 1) if left else 1
+        ones = _CHINESE_DIGITS.get(right, 0) if right else 0
+        return tens * 10 + ones
+    return _CHINESE_DIGITS.get(value)
+
+
+def _extract_class_number(class_name: str) -> int | None:
+    name = (class_name or "").strip()
+    match = re.search(r"(\d+)\s*班$", name)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"([一二三四五六七八九十]+)\s*班$", name)
+    if not match:
+        return None
+    token = match.group(1)
+    if len(token) > 1 and token[0] in "七八九":
+        suffix_number = _parse_standard_chinese_number(token[1:])
+        if suffix_number is not None:
+            return suffix_number
+    return _parse_standard_chinese_number(token)
+
+
+def _class_sheet_sort_key(class_id: int, class_name_map: dict[int, str]) -> tuple[Any, ...]:
+    class_name = class_name_map.get(class_id, str(class_id))
+    class_number = _extract_class_number(class_name)
+    if class_number is not None:
+        return (0, class_number, class_name, class_id)
+    return (1, class_name, class_id)
+
+
+def _is_afternoon_period(period: SchedulePeriod) -> bool:
+    start_time = str(period.start_time or "")
+    if not start_time:
+        return False
+    hour_text = start_time.split(":", 1)[0]
+    return hour_text.isdigit() and int(hour_text) >= 12
+
+
+def _export_periods_for_draft(db: Session, school_id: int, grade: str, rows: list[ScheduleDraftItem]) -> list[SchedulePeriod]:
+    period_plan = (
+        db.query(SchedulePeriodPlan)
+        .filter(SchedulePeriodPlan.school_id == school_id, SchedulePeriodPlan.grade == grade)
+        .first()
+    )
+    if period_plan:
+        selected_period_ids = decode_period_plan_ids(period_plan.config)
+        if not selected_period_ids:
+            return []
+        return (
+            db.query(SchedulePeriod)
+            .filter(
+                SchedulePeriod.school_id == school_id,
+                SchedulePeriod.is_active == True,  # noqa: E712
+                SchedulePeriod.include_in_auto_schedule == True,  # noqa: E712
+                SchedulePeriod.id.in_(selected_period_ids),
+            )
+            .order_by(SchedulePeriod.sort_order, SchedulePeriod.id)
+            .all()
+        )
+
+    configured_periods = (
+        db.query(SchedulePeriod)
+        .filter(
+            SchedulePeriod.school_id == school_id,
+            SchedulePeriod.is_active == True,  # noqa: E712
+            SchedulePeriod.include_in_auto_schedule == True,  # noqa: E712
+        )
+        .order_by(SchedulePeriod.sort_order, SchedulePeriod.id)
+        .all()
+    )
+    if configured_periods:
+        return configured_periods
+
+    period_ids = sorted({row.period_id for row in rows})
+    return db.query(SchedulePeriod).filter(SchedulePeriod.id.in_(period_ids)).order_by(SchedulePeriod.sort_order, SchedulePeriod.id).all() if period_ids else []
+
+
+def _style_schedule_sheet(ws, max_row: int, max_col: int = 6) -> None:
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=max_col)
+    ws.merge_cells(start_row=2, start_column=1, end_row=2, end_column=max_col)
+    ws.column_dimensions["A"].width = 12
+    for column_index in range(2, max_col + 1):
+        ws.column_dimensions[chr(64 + column_index)].width = 14
+    ws.row_dimensions[1].height = 30
+    ws.row_dimensions[2].height = 26
+
+    thin = Side(style="thin", color="000000")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    header_fill = PatternFill("solid", fgColor="F7F7F7")
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    ws["A1"].font = Font(name="SimSun", size=20, bold=True)
+    ws["A1"].alignment = center
+    ws["A2"].font = Font(name="SimSun", size=14, bold=True)
+    ws["A2"].alignment = center
+
+    for row in ws.iter_rows(min_row=3, max_row=max_row, min_col=1, max_col=max_col):
+        for cell in row:
+            cell.border = border
+            cell.alignment = center
+            cell.font = Font(name="SimSun", size=11, bold=True)
+            if cell.row == 3:
+                cell.fill = header_fill
+    ws.freeze_panes = "B4"
+
+
 def _mark_task_failed(db: Session, task: ScheduleTask, message: str, *, error: str | None = None, result: dict[str, Any] | None = None) -> None:
     task.status = "failed"
     task.progress = 100
@@ -187,6 +367,36 @@ def get_lesson_plan(grade: str, current_user: User = Depends(require_school_admi
         payload = decode_json_content(row.content)
         items.append(LessonPlanConfig(subject_id=row.subject_id, **payload))
     return LessonPlanBatchResponse(grade=grade, items=items)
+
+
+@router.get("/period-plan/{grade}", response_model=PeriodPlanResponse)
+def get_period_plan(grade: str, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    row = (
+        db.query(SchedulePeriodPlan)
+        .filter(SchedulePeriodPlan.school_id == school_id, SchedulePeriodPlan.grade == grade)
+        .first()
+    )
+    period_ids = decode_period_plan_ids(row.config) if row else _available_auto_period_ids(db, school_id)
+    return PeriodPlanResponse(grade=grade, period_ids=period_ids)
+
+
+@router.post("/period-plan", response_model=PeriodPlanResponse)
+def save_period_plan(req: PeriodPlanSaveRequest, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    available_ids = _available_auto_period_ids(db, school_id)
+    period_ids = _normalize_period_ids(req.period_ids, available_ids)
+    row = (
+        db.query(SchedulePeriodPlan)
+        .filter(SchedulePeriodPlan.school_id == school_id, SchedulePeriodPlan.grade == req.grade)
+        .first()
+    )
+    if row is None:
+        row = SchedulePeriodPlan(school_id=school_id, grade=req.grade)
+        db.add(row)
+    row.config = _json_dumps({"period_ids": period_ids})
+    db.commit()
+    return PeriodPlanResponse(grade=req.grade, period_ids=period_ids)
 
 
 @router.post("/lesson-plan", response_model=LessonPlanBatchResponse)
@@ -311,6 +521,20 @@ def save_locks(req: TimetableLockBatchSaveRequest, current_user: User = Depends(
         )
     db.commit()
     return TimetableLockBatchResponse(grade=req.grade, items=req.items)
+
+
+@router.get("/debug-config/{grade}/export")
+def export_schedule_debug_config(grade: str, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    raw_config = load_scheduling_raw_config(db, school_id, grade)
+    exported_at = datetime.now().isoformat()
+    payload = build_scheduling_debug_package(raw_config, grade=grade, exported_at=exported_at)
+    filename = f"schedule-debug-{grade}-{datetime.now().strftime('%Y%m%d%H%M%S')}.json"
+    return Response(
+        content=_json_dumps(payload),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.get("/imports/template")
@@ -515,6 +739,67 @@ def get_schedule_draft_items(draft_id: int, current_user: User = Depends(require
         for item in base_items
     ]
     return ScheduleDraftItemsResponse(items=items)
+
+
+@router.get("/drafts/{draft_id}/export")
+def export_schedule_draft(draft_id: int, current_user: User = Depends(require_school_admin), db: Session = Depends(get_db)):
+    school_id = _require_school_id(current_user)
+    draft = db.query(ScheduleDraft).filter(ScheduleDraft.id == draft_id, ScheduleDraft.school_id == school_id).first()
+    if not draft:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="draft not found")
+
+    rows = (
+        db.query(ScheduleDraftItem)
+        .filter(ScheduleDraftItem.draft_id == draft.id)
+        .order_by(ScheduleDraftItem.class_id, ScheduleDraftItem.weekday, ScheduleDraftItem.period_id)
+        .all()
+    )
+    class_name_map, subject_name_map, _teacher_name_map, _period_name_map = _build_timetable_names(db, rows)
+    periods = _export_periods_for_draft(db, school_id, draft.grade, rows)
+    class_ids = sorted({row.class_id for row in rows}, key=lambda class_id: _class_sheet_sort_key(class_id, class_name_map))
+
+    wb = Workbook()
+    wb.remove(wb.active)
+    used_titles: set[str] = set()
+    weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五"]
+    for class_id in class_ids:
+        class_title = class_name_map.get(class_id, "") or f"班级{class_id}"
+        ws = wb.create_sheet(title=_safe_sheet_title(class_title, f"班级{class_id}", used_titles))
+        ws.append(["课 程 表", "", "", "", "", ""])
+        ws.append([class_title, "", "", "", "", ""])
+        ws.append(["节次", *weekdays])
+        class_rows = [row for row in rows if row.class_id == class_id]
+        item_map = {(row.weekday, row.period_id): row for row in class_rows}
+        lunch_inserted = False
+        for period in periods:
+            if not lunch_inserted and _is_afternoon_period(period):
+                ws.append(["午休", "", "", "", "", ""])
+                lunch_row = ws.max_row
+                ws.merge_cells(start_row=lunch_row, start_column=1, end_row=lunch_row, end_column=6)
+                lunch_inserted = True
+            line = [period.name]
+            for weekday in range(1, 6):
+                item = item_map.get((weekday, period.id))
+                line.append(subject_name_map.get(item.subject_id, "") if item else "")
+            ws.append(line)
+        _style_schedule_sheet(ws, ws.max_row)
+
+    if not wb.sheetnames:
+        ws = wb.create_sheet(title="课表")
+        ws.append(["课 程 表", "", "", "", "", ""])
+        ws.append(["课表", "", "", "", "", ""])
+        ws.append(["节次", *weekdays])
+        _style_schedule_sheet(ws, ws.max_row)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"schedule-draft-{draft.grade}-{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
 
 
 @router.post("/drafts/{draft_id}/publish", response_model=PublishDraftResponse)

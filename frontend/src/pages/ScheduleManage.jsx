@@ -27,6 +27,7 @@ import {
   AppstoreOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  DownloadOutlined,
   EyeOutlined,
   FileExcelOutlined,
   LockOutlined,
@@ -47,9 +48,12 @@ import {
   createScheduleImport,
   createScheduleImportDraft,
   downloadScheduleImportTemplate,
+  exportScheduleDraft,
+  exportScheduleDebugConfig,
   getClassTimetable,
   getLessonPlan,
   getLessonPlanOverrides,
+  getPeriodPlan,
   getScheduleDraft,
   getScheduleDraftItems,
   getScheduleTask,
@@ -62,6 +66,7 @@ import {
   publishScheduleDraft,
   saveLessonPlan,
   saveLessonPlanOverrides,
+  savePeriodPlan,
   saveTeacherConstraints,
   saveTeachingArrangement,
   saveTimetableLocks,
@@ -289,14 +294,44 @@ function ImportIssueTags({ flags = [] }) {
   )
 }
 
+function ForbiddenPeriodSelect({ value, periods, onChange, placeholder = '选择禁排时段' }) {
+  const options = [
+    ...periods.map((period) => ({
+      label: `每天${period.name}`,
+      value: `*-${period.id}`,
+    })),
+  ]
+  const selectedValues = String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  return (
+    <Select
+      mode="multiple"
+      allowClear
+      showSearch
+      style={{ width: '100%' }}
+      placeholder={placeholder}
+      value={selectedValues}
+      options={options}
+      optionFilterProp="label"
+      maxTagCount="responsive"
+      onChange={(nextValues) => onChange(nextValues.join(','))}
+    />
+  )
+}
+
 export default function ScheduleManage() {
   const [classes, setClasses] = useState([])
   const [subjects, setSubjects] = useState([])
   const [teachers, setTeachers] = useState([])
   const [periods, setPeriods] = useState([])
+  const [periodPlanIds, setPeriodPlanIds] = useState([])
   const [grade, setGrade] = useState('')
   const [plans, setPlans] = useState([createEmptyPlan()])
   const [arrangements, setArrangements] = useState([createEmptyArrangement()])
+  const [arrangementClassFilter, setArrangementClassFilter] = useState(undefined)
   const [overrides, setOverrides] = useState([createEmptyOverride()])
   const [teacherConstraints, setTeacherConstraints] = useState([createEmptyTeacherConstraint()])
   const [locks, setLocks] = useState([createEmptyLock()])
@@ -305,6 +340,7 @@ export default function ScheduleManage() {
   const [currentDraft, setCurrentDraft] = useState(null)
   const [draftItems, setDraftItems] = useState([])
   const [previewRows, setPreviewRows] = useState([])
+  const [reviewClassId, setReviewClassId] = useState(undefined)
   const [previewClassId, setPreviewClassId] = useState(undefined)
   const [activeTab, setActiveTab] = useState('overview')
   const [reloadTick, setReloadTick] = useState(0)
@@ -313,6 +349,8 @@ export default function ScheduleManage() {
   const [saveLoading, setSaveLoading] = useState(false)
   const [solveLoading, setSolveLoading] = useState(false)
   const [publishLoading, setPublishLoading] = useState(false)
+  const [debugExportLoading, setDebugExportLoading] = useState(false)
+  const [draftExportLoading, setDraftExportLoading] = useState(false)
   const [pageError, setPageError] = useState('')
   const [dirty, setDirty] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -343,33 +381,73 @@ export default function ScheduleManage() {
   )
 
   const summaryCounts = buildSummaryCounts({ plans, arrangements, overrides, teacherConstraints, locks })
-  const configWarnings = buildConfigWarnings({ plans, arrangements, dirty })
   const taskSnapshot = buildTaskSnapshot({ task, currentDraft, draftItems })
-  const draftRows = buildTimetableRows(draftItems, periods)
-  const gradeClasses = classes.filter((item) => item.grade === grade)
+  const gradeClasses = useMemo(() => classes.filter((item) => item.grade === grade), [classes, grade])
+  const configWarnings = buildConfigWarnings({ classes: gradeClasses, plans, arrangements, subjects, dirty })
   const classOptions = gradeClasses.map((item) => ({ label: `${item.grade}-${item.name}`, value: item.id }))
+  const arrangementRows = useMemo(() => arrangements.map((item, index) => ({ ...item, __index: index })), [arrangements])
+  const visibleArrangementRows = useMemo(
+    () => arrangementClassFilter ? arrangementRows.filter((item) => item.class_id === arrangementClassFilter) : arrangementRows,
+    [arrangementClassFilter, arrangementRows],
+  )
+  const selectedDraftItems = reviewClassId ? draftItems.filter((item) => item.class_id === reviewClassId) : draftItems
+  const draftPeriodIds = new Set(selectedDraftItems.map((item) => item.period_id))
+  const reviewPeriods = periods.filter((item) => draftPeriodIds.has(item.id))
+  const draftRows = buildTimetableRows(selectedDraftItems, reviewPeriods)
+  const reviewClassLabel = classOptions.find((item) => item.value === reviewClassId)?.label || '未选择班级'
   const importGradeClasses = classes.filter((item) => item.grade === importGrade)
   const importClassOptions = importGradeClasses.map((item) => ({ label: `${item.grade}-${item.name}`, value: item.id }))
   const subjectOptions = subjects.map((item) => ({ label: item.name, value: item.id }))
   const teacherOptions = teachers.map((item) => ({ label: item.username, value: item.id }))
   const periodOptions = periods.map((item) => ({ label: item.name, value: item.id }))
+  const autoPeriodOptions = periods
+    .filter((item) => item.is_active && item.include_in_auto_schedule)
+    .map((item) => ({ label: `${item.name} ${item.start_time}-${item.end_time}`, value: item.id }))
+  const selectedAutoPeriods = periods.filter((item) => periodPlanIds.includes(item.id))
+  const constraintPeriodOptions = (selectedAutoPeriods.length ? selectedAutoPeriods : periods.filter((item) => item.is_active && item.include_in_auto_schedule))
+    .slice()
+    .sort((left, right) => (left.sort_order ?? left.id) - (right.sort_order ?? right.id))
+  const periodPlanCapacity = selectedAutoPeriods.length * 5
   const importIssues = summarizeImportIssues(importItems)
   const importReadyForDraft = canCreateImportDraft(importItems)
   const filteredImportItems = useMemo(() => filterImportItemsByStatus(importItems, importStatusFilter), [importItems, importStatusFilter])
-  const coreConfigReady = summaryCounts.plans > 0 && summaryCounts.arrangements > 0
+  const coreConfigReady = summaryCounts.plans > 0 && summaryCounts.arrangements > 0 && periodPlanIds.length > 0
   const publishChecks = currentDraft?.publish_checks || []
   const blockingPublishChecks = publishChecks.filter((item) => item.blocking)
   const workspaceStage = useMemo(() => {
+    if (activeTab !== 'draft' && activeTab !== 'overview' && !solveLoading && !publishLoading) return 'prepare'
     if (task && !['success', 'failed'].includes(task.status)) return 'solving'
     if (currentDraft?.status === 'published') return 'published'
     if (currentDraftId || currentDraft) return 'review'
     return 'prepare'
-  }, [currentDraft, currentDraftId, task])
+  }, [activeTab, currentDraft, currentDraftId, publishLoading, solveLoading, task])
+
+  useEffect(() => {
+    if (!gradeClasses.length) {
+      setReviewClassId(undefined)
+      setPreviewClassId(undefined)
+      setPreviewRows([])
+      return
+    }
+    if (!reviewClassId || !gradeClasses.some((item) => item.id === reviewClassId)) {
+      setReviewClassId(gradeClasses[0].id)
+    }
+  }, [gradeClasses, reviewClassId])
+
+  useEffect(() => {
+    if (!(workspaceStage === 'review' || workspaceStage === 'published')) return
+    if (!reviewClassId) {
+      setPreviewClassId(undefined)
+      setPreviewRows([])
+      return
+    }
+    handlePreviewClass(reviewClassId)
+  }, [reviewClassId, workspaceStage])
 
   const readinessPercent = useMemo(() => {
-    const checkpoints = [Boolean(grade), summaryCounts.plans > 0, summaryCounts.arrangements > 0, !dirty]
+    const checkpoints = [Boolean(grade), periodPlanIds.length > 0, summaryCounts.plans > 0, summaryCounts.arrangements > 0, !dirty]
     return Math.round((checkpoints.filter(Boolean).length / checkpoints.length) * 100)
-  }, [dirty, grade, summaryCounts.arrangements, summaryCounts.plans])
+  }, [dirty, grade, periodPlanIds.length, summaryCounts.arrangements, summaryCounts.plans])
 
   const nextAction = useMemo(() => {
     if (!grade) {
@@ -384,6 +462,13 @@ export default function ScheduleManage() {
         title: '补齐课时计划',
         description: '先定义每个学科的周课时、单日上限和禁排时段，求解器才能建立基础规则。',
         tab: 'plans',
+      }
+    }
+    if (!periodPlanIds.length) {
+      return {
+        title: '配置节次计划',
+        description: '选择当前年级自动排课实际使用的节次，例如每天 7 节时只勾选第1节到第7节。',
+        tab: 'periods',
       }
     }
     if (!summaryCounts.arrangements) {
@@ -412,10 +497,15 @@ export default function ScheduleManage() {
       description: '草案已生成，建议先检查锁定命中率、风险数和正式课表预览，再决定是否发布。',
       tab: 'draft',
     }
-  }, [activeTab, currentDraft, dirty, grade, summaryCounts.arrangements, summaryCounts.plans])
+  }, [activeTab, currentDraft, dirty, grade, periodPlanIds.length, summaryCounts.arrangements, summaryCounts.plans])
 
   function markDirty() {
     setDirty(true)
+  }
+
+  function handlePeriodPlanChange(values) {
+    setPeriodPlanIds(values)
+    markDirty()
   }
 
   function replaceRow(setter, index, patch) {
@@ -425,6 +515,11 @@ export default function ScheduleManage() {
 
   function addRow(setter, factory) {
     setter((current) => [...current, factory()])
+    markDirty()
+  }
+
+  function handleAddArrangement() {
+    setArrangements((current) => [...current, { ...createEmptyArrangement(), class_id: arrangementClassFilter }])
     markDirty()
   }
 
@@ -477,6 +572,17 @@ export default function ScheduleManage() {
   }, [])
 
   useEffect(() => {
+    const firstClassId = gradeClasses[0]?.id
+    if (!firstClassId) {
+      if (arrangementClassFilter !== undefined) setArrangementClassFilter(undefined)
+      return
+    }
+    if (!gradeClasses.some((item) => item.id === arrangementClassFilter)) {
+      setArrangementClassFilter(firstClassId)
+    }
+  }, [arrangementClassFilter, gradeClasses])
+
+  useEffect(() => {
     if (!grade) return
 
     let cancelled = false
@@ -485,8 +591,9 @@ export default function ScheduleManage() {
       setConfigLoading(true)
       setPageError('')
       try {
-        const [plansResp, arrangementsResp, overridesResp, constraintsResp, locksResp] = await Promise.all([
+        const [plansResp, periodPlanResp, arrangementsResp, overridesResp, constraintsResp, locksResp] = await Promise.all([
           getLessonPlan(grade),
+          getPeriodPlan(grade),
           getTeachingArrangement(grade),
           getLessonPlanOverrides(grade),
           getTeacherConstraints(grade),
@@ -495,6 +602,7 @@ export default function ScheduleManage() {
         if (cancelled) return
 
         setPlans(normalizePlans(plansResp.data?.items || []))
+        setPeriodPlanIds(periodPlanResp.data?.period_ids || [])
         setArrangements(normalizeArrangements(arrangementsResp.data?.items || []))
         setOverrides(normalizeOverrides(overridesResp.data?.items || []))
         setTeacherConstraints(normalizeTeacherConstraints(constraintsResp.data?.items || []))
@@ -551,6 +659,10 @@ export default function ScheduleManage() {
               preferred_session: item.preferred_session || 'any',
               forbidden_periods: parseForbiddenPeriods(item.forbidden_periods_text),
             })),
+        }),
+        savePeriodPlan({
+          grade,
+          period_ids: periodPlanIds.map((item) => Number(item)),
         }),
         saveTeachingArrangement({
           grade,
@@ -668,8 +780,8 @@ export default function ScheduleManage() {
       await publishScheduleDraft(currentDraftId)
       message.success('草案已发布为正式课表')
       await loadDraftBundle(currentDraftId)
-      if (previewClassId) {
-        const response = await getClassTimetable(previewClassId)
+      if (reviewClassId) {
+        const response = await getClassTimetable(reviewClassId)
         setPreviewRows(buildTimetableRows(response.data?.items || [], periods))
       }
     } catch (error) {
@@ -689,6 +801,31 @@ export default function ScheduleManage() {
     } catch (error) {
       message.error(error.message || '正式课表预览加载失败')
     }
+  }
+
+  function handleReviewClassChange(classId) {
+    setReviewClassId(classId)
+  }
+
+  function renderReviewTimetableBlock(title, description, rows, emptyDescription) {
+    return (
+      <div style={{ border: '1px solid rgba(177, 195, 219, 0.42)', borderRadius: 14, padding: 14, background: 'rgba(248, 251, 255, 0.72)' }}>
+        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+            <Space size={8} align="center">
+              <TableOutlined style={{ color: pageTokens.primary }} />
+              <Text strong>{title}</Text>
+            </Space>
+            <Text type="secondary">{description}</Text>
+          </Space>
+          {rows.length ? (
+            <Table size="small" rowKey="key" pagination={false} columns={timetableColumns} dataSource={rows} scroll={{ x: 900 }} />
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyDescription} />
+          )}
+        </Space>
+      </div>
+    )
   }
 
   function resetImportWizard() {
@@ -798,6 +935,53 @@ export default function ScheduleManage() {
       window.URL.revokeObjectURL(url)
     } catch (error) {
       message.error(error.message || '下载Excel模板失败')
+    }
+  }
+
+  async function handleExportDebugConfig() {
+    if (!grade) return message.warning('请先选择年级')
+    if (dirty) return message.warning('请先保存配置后再导出调试包')
+
+    setDebugExportLoading(true)
+    try {
+      const response = await exportScheduleDebugConfig(grade)
+      const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '')
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/json' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `schedule-debug-${grade}-${timestamp}.json`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      message.success('排课调试包已导出')
+    } catch (error) {
+      message.error(error.message || '导出调试包失败')
+    } finally {
+      setDebugExportLoading(false)
+    }
+  }
+
+  async function handleExportDraft() {
+    if (!currentDraftId) return message.warning('当前没有可导出的草案')
+
+    setDraftExportLoading(true)
+    try {
+      const response = await exportScheduleDraft(currentDraftId)
+      const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '')
+      const url = window.URL.createObjectURL(new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `schedule-draft-${grade || currentDraftId}-${timestamp}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      message.success('课表已导出')
+    } catch (error) {
+      message.error(error.message || '导出课表失败')
+    } finally {
+      setDraftExportLoading(false)
     }
   }
 
@@ -923,15 +1107,47 @@ export default function ScheduleManage() {
     { title: '周课时', dataIndex: 'weekly_hours', width: 110, render: (_, record, index) => <InputNumber min={0} max={30} style={{ width: '100%' }} value={record.weekly_hours} onChange={(value) => replaceRow(setPlans, index, { weekly_hours: value ?? 0 })} /> },
     { title: '单日上限', dataIndex: 'daily_max_hours', width: 110, render: (_, record, index) => <InputNumber min={0} max={10} style={{ width: '100%' }} value={record.daily_max_hours} onChange={(value) => replaceRow(setPlans, index, { daily_max_hours: value ?? 0 })} /> },
     { title: '偏好时段', dataIndex: 'preferred_session', width: 130, render: (_, record, index) => <Select value={record.preferred_session} options={SESSION_OPTIONS} onChange={(value) => replaceRow(setPlans, index, { preferred_session: value })} /> },
-    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <Input placeholder="例如 1-1,5-3" value={record.forbidden_periods_text} onChange={(event) => replaceRow(setPlans, index, { forbidden_periods_text: event.target.value })} /> },
+    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <ForbiddenPeriodSelect periods={constraintPeriodOptions} value={record.forbidden_periods_text} onChange={(value) => replaceRow(setPlans, index, { forbidden_periods_text: value })} /> },
     { title: '操作', key: 'actions', width: 70, fixed: 'right', render: (_, __, index) => <Button danger type="text" onClick={() => removeRow(setPlans, index, createEmptyPlan)}>删除</Button> },
   ]
 
   const arrangementColumns = [
-    { title: '班级', dataIndex: 'class_id', width: 180, render: (_, record, index) => <Select allowClear placeholder="选择班级" value={record.class_id} options={classOptions} onChange={(value) => replaceRow(setArrangements, index, { class_id: value })} /> },
-    { title: '科目', dataIndex: 'subject_id', width: 180, render: (_, record, index) => <Select allowClear placeholder="选择科目" value={record.subject_id} options={subjectOptions} onChange={(value) => replaceRow(setArrangements, index, { subject_id: value })} /> },
-    { title: '教师', dataIndex: 'teacher_id', render: (_, record, index) => <Select allowClear placeholder="选择教师" value={record.teacher_id} options={teacherOptions} onChange={(value) => replaceRow(setArrangements, index, { teacher_id: value })} /> },
-    { title: '操作', key: 'actions', width: 70, fixed: 'right', render: (_, __, index) => <Button danger type="text" onClick={() => removeRow(setArrangements, index, createEmptyArrangement)}>删除</Button> },
+    {
+      title: '班级',
+      dataIndex: 'class_id',
+      width: 180,
+      render: (_, record, index) => {
+        const rowIndex = record.__index ?? index
+        return <Select allowClear placeholder="选择班级" value={record.class_id} options={classOptions} onChange={(value) => replaceRow(setArrangements, rowIndex, { class_id: value })} />
+      },
+    },
+    {
+      title: '科目',
+      dataIndex: 'subject_id',
+      width: 180,
+      render: (_, record, index) => {
+        const rowIndex = record.__index ?? index
+        return <Select allowClear placeholder="选择科目" value={record.subject_id} options={subjectOptions} onChange={(value) => replaceRow(setArrangements, rowIndex, { subject_id: value })} />
+      },
+    },
+    {
+      title: '教师',
+      dataIndex: 'teacher_id',
+      render: (_, record, index) => {
+        const rowIndex = record.__index ?? index
+        return <Select allowClear placeholder="选择教师" value={record.teacher_id} options={teacherOptions} onChange={(value) => replaceRow(setArrangements, rowIndex, { teacher_id: value })} />
+      },
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 70,
+      fixed: 'right',
+      render: (_, record, index) => {
+        const rowIndex = record.__index ?? index
+        return <Button danger type="text" onClick={() => removeRow(setArrangements, rowIndex, createEmptyArrangement)}>删除</Button>
+      },
+    },
   ]
 
   const overrideColumns = [
@@ -940,15 +1156,15 @@ export default function ScheduleManage() {
     { title: '周课时', dataIndex: 'weekly_hours', width: 110, render: (_, record, index) => <InputNumber min={0} max={30} style={{ width: '100%' }} value={record.weekly_hours} onChange={(value) => replaceRow(setOverrides, index, { weekly_hours: value ?? 0 })} /> },
     { title: '单日上限', dataIndex: 'daily_max_hours', width: 110, render: (_, record, index) => <InputNumber min={0} max={10} style={{ width: '100%' }} value={record.daily_max_hours} onChange={(value) => replaceRow(setOverrides, index, { daily_max_hours: value ?? 0 })} /> },
     { title: '偏好时段', dataIndex: 'preferred_session', width: 130, render: (_, record, index) => <Select value={record.preferred_session} options={SESSION_OPTIONS} onChange={(value) => replaceRow(setOverrides, index, { preferred_session: value })} /> },
-    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <Input placeholder="例如 2-1,4-3" value={record.forbidden_periods_text} onChange={(event) => replaceRow(setOverrides, index, { forbidden_periods_text: event.target.value })} /> },
+    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <ForbiddenPeriodSelect periods={constraintPeriodOptions} value={record.forbidden_periods_text} onChange={(value) => replaceRow(setOverrides, index, { forbidden_periods_text: value })} /> },
     { title: '操作', key: 'actions', width: 70, fixed: 'right', render: (_, __, index) => <Button danger type="text" onClick={() => removeRow(setOverrides, index, createEmptyOverride)}>删除</Button> },
   ]
 
   const teacherConstraintColumns = [
     { title: '教师', dataIndex: 'teacher_id', width: 180, render: (_, record, index) => <Select allowClear placeholder="选择教师" value={record.teacher_id} options={teacherOptions} onChange={(value) => replaceRow(setTeacherConstraints, index, { teacher_id: value })} /> },
     { title: '单日最大课时', dataIndex: 'daily_max_hours', width: 130, render: (_, record, index) => <InputNumber min={0} max={12} style={{ width: '100%' }} value={record.daily_max_hours} onChange={(value) => replaceRow(setTeacherConstraints, index, { daily_max_hours: value ?? 0 })} /> },
-    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <Input placeholder="例如 1-2,3-4" value={record.forbidden_periods_text} onChange={(event) => replaceRow(setTeacherConstraints, index, { forbidden_periods_text: event.target.value })} /> },
-    { title: '优先时段', dataIndex: 'preferred_periods_text', render: (_, record, index) => <Input placeholder="例如 1-1,2-1" value={record.preferred_periods_text} onChange={(event) => replaceRow(setTeacherConstraints, index, { preferred_periods_text: event.target.value })} /> },
+    { title: '禁排时段', dataIndex: 'forbidden_periods_text', render: (_, record, index) => <ForbiddenPeriodSelect periods={constraintPeriodOptions} value={record.forbidden_periods_text} onChange={(value) => replaceRow(setTeacherConstraints, index, { forbidden_periods_text: value })} /> },
+    { title: '优先时段', dataIndex: 'preferred_periods_text', render: (_, record, index) => <ForbiddenPeriodSelect periods={constraintPeriodOptions} value={record.preferred_periods_text} placeholder="选择优先时段" onChange={(value) => replaceRow(setTeacherConstraints, index, { preferred_periods_text: value })} /> },
     { title: '操作', key: 'actions', width: 70, fixed: 'right', render: (_, __, index) => <Button danger type="text" onClick={() => removeRow(setTeacherConstraints, index, createEmptyTeacherConstraint)}>删除</Button> },
   ]
 
@@ -964,6 +1180,7 @@ export default function ScheduleManage() {
   ]
 
   const overviewItems = [
+    { key: 'periods', title: '节次计划', metric: `${selectedAutoPeriods.length} 节/天`, description: '配置本次自动排课实际使用的一天节次数，可按年级选择 7 节或 8 节。' },
     { key: 'plans', title: '课时计划', metric: `${summaryCounts.plans} 条`, description: '配置学科周课时、单日上限、偏好时段和禁排时段。' },
     { key: 'arrangements', title: '任课安排', metric: `${summaryCounts.arrangements} 条`, description: '明确班级、科目与教师的映射关系，是排课求解的核心输入。' },
     { key: 'constraints', title: '教师约束', metric: `${summaryCounts.teacherConstraints} 条`, description: '限制教师每日最大课时，并为特殊教师配置优先或禁排时段。' },
@@ -995,6 +1212,40 @@ export default function ScheduleManage() {
       ),
     },
     {
+      key: 'periods',
+      label: <Space size={6}><span>节次计划</span><Tag bordered={false}>{selectedAutoPeriods.length}</Tag></Space>,
+      children: (
+        <SectionCard
+          eyebrow="PERIOD PLAN"
+          title="年级节次计划"
+          description="这里定义当前年级自动排课实际使用的一天节次数。全校节次模板可以保留 8 节，但本次排课只使用选中的节次。"
+        >
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Alert
+              type={periodPlanIds.length ? 'info' : 'warning'}
+              showIcon
+              message={periodPlanIds.length ? `当前每天参与排课 ${selectedAutoPeriods.length} 节` : '请至少选择一个参与排课的节次'}
+              description={`按周一至周五计算，当前自动排课容量为 ${periodPlanCapacity} 个课位。`}
+            />
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: '100%' }}
+              placeholder="选择参与自动排课的节次"
+              value={periodPlanIds}
+              options={autoPeriodOptions}
+              onChange={handlePeriodPlanChange}
+            />
+            <Row gutter={[12, 12]}>
+              <Col xs={24} md={8}><ReviewStatCard title="每日节次" value={selectedAutoPeriods.length} helper="当前年级自动排课使用" /></Col>
+              <Col xs={24} md={8}><ReviewStatCard title="周容量" value={periodPlanCapacity} helper="按周一至周五计算" /></Col>
+              <Col xs={24} md={8}><ReviewStatCard title="全校模板" value={autoPeriodOptions.length} helper="可参与自动排课的节次" /></Col>
+            </Row>
+          </Space>
+        </SectionCard>
+      ),
+    },
+    {
       key: 'plans',
       label: <Space size={6}><span>课时计划</span><Tag bordered={false}>{summaryCounts.plans}</Tag></Space>,
       children: (
@@ -1012,8 +1263,24 @@ export default function ScheduleManage() {
       key: 'arrangements',
       label: <Space size={6}><span>任课安排</span><Tag bordered={false}>{summaryCounts.arrangements}</Tag></Space>,
       children: (
-        <SectionCard eyebrow="TEACHING MAP" title="班级-科目-教师分配" description="自动排课前，先把授课关系梳理清楚。这里越完整，草案越稳定。" extra={<Button onClick={() => addRow(setArrangements, createEmptyArrangement)}>新增安排</Button>}>
-          <Table size="middle" rowKey={(_, index) => `arrangement-${index}`} pagination={false} columns={arrangementColumns} dataSource={arrangements} scroll={{ x: 780 }} />
+        <SectionCard
+          eyebrow="TEACHING MAP"
+          title="班级-科目-教师分配"
+          description="自动排课前，先把授课关系梳理清楚。这里越完整，草案越稳定。"
+          extra={(
+            <Space wrap>
+              <Select
+                style={{ width: 180 }}
+                placeholder="按班级筛选"
+                value={arrangementClassFilter}
+                options={classOptions}
+                onChange={setArrangementClassFilter}
+              />
+              <Button onClick={handleAddArrangement}>新增安排</Button>
+            </Space>
+          )}
+        >
+          <Table size="middle" rowKey={(record, index) => `arrangement-${record.__index ?? index}`} pagination={false} columns={arrangementColumns} dataSource={visibleArrangementRows} scroll={{ x: 780 }} />
         </SectionCard>
       ),
     },
@@ -1127,6 +1394,7 @@ export default function ScheduleManage() {
                   <Row gutter={[12, 12]}>
                     <Col xs={24} sm={12}><Button block icon={<ReloadOutlined />} loading={configLoading} onClick={() => setReloadTick((value) => value + 1)}>刷新配置</Button></Col>
                     <Col xs={24} sm={12}><Button block icon={<SaveOutlined />} loading={saveLoading} onClick={handleSaveAll}>保存配置</Button></Col>
+                    <Col xs={24} sm={12}><Button block icon={<DownloadOutlined />} loading={debugExportLoading} onClick={handleExportDebugConfig}>导出调试包</Button></Col>
                     <Col xs={24} sm={12}><Button block icon={<UploadOutlined />} disabled={!gradeOptions.length} onClick={handleOpenImportWizard}>上传已有课表</Button></Col>
                     <Col xs={24} sm={12}>
                       <Button
@@ -1195,6 +1463,9 @@ export default function ScheduleManage() {
                       extra={<Button type="primary" icon={<RobotOutlined />} disabled={!coreConfigReady} loading={solveLoading} onClick={handlePrimaryStageAction}>开始自动排课</Button>}
                     >
                       <Space direction="vertical" size={16} style={{ width: '100%' }}>
+                        {task?.status === 'failed' ? (
+                          <Alert type="error" showIcon message={taskSnapshot.title} description={taskSnapshot.description} />
+                        ) : null}
                         {coreConfigReady ? (
                           <Alert type="success" showIcon message="当前已具备生成草案的基础条件" description={dirty ? '检测到未保存修改，建议先保存，再开始自动排课。' : '现在可以直接开始自动排课，也可以继续补充教师约束和锁定课位。'} />
                         ) : (
@@ -1260,10 +1531,10 @@ export default function ScheduleManage() {
                 {workspaceStage === 'review' || workspaceStage === 'published' ? (
                   <div ref={reviewSectionRef}>
                     <SectionCard
-                    eyebrow="REVIEW"
-                    title={workspaceStage === 'published' ? '正式课表已发布' : '复核草案并决定是否发布'}
-                    description={workspaceStage === 'published' ? '当前草案已经发布为正式课表。你可以继续查看正式课表，或者调整后再次生成新草案。' : '草案生成后，请先查看草案课表、正式课表对比和风险清单，再决定是否发布。'}
-                    extra={<Button type="primary" icon={<SendOutlined />} loading={publishLoading} disabled={!canPublishCurrentDraft} onClick={handlePublishDraft}>发布为正式课表</Button>}
+                      eyebrow="REVIEW"
+                      title={workspaceStage === 'published' ? '正式课表已发布' : '复核草案并决定是否发布'}
+                      description={workspaceStage === 'published' ? '当前草案已经发布为正式课表。你可以继续查看正式课表，或者调整后再次生成新草案。' : '草案生成后，请先查看草案课表、正式课表对比和风险清单，再决定是否发布。'}
+                      extra={<Button type="primary" icon={<SendOutlined />} loading={publishLoading} disabled={!canPublishCurrentDraft} onClick={handlePublishDraft}>发布为正式课表</Button>}
                     >
                     <Space direction="vertical" size={18} style={{ width: '100%' }}>
                       <Alert
@@ -1282,6 +1553,12 @@ export default function ScheduleManage() {
                         <Col xs={24} md={6}><ReviewStatCard title="锁定命中" value={`${lockedHits}/${lockedTotal}`} helper="锁定规则满足情况" /></Col>
                         <Col xs={24} md={6}><ReviewStatCard title="草案课位" value={draftItems.length} helper="本次生成课位数量" /></Col>
                       </Row>
+                      <Alert
+                        type="info"
+                        showIcon
+                        message={`当前班级：${reviewClassLabel}`}
+                        description="下面的正式课表与草案课表会针对同一个班级并排展示，便于快速发现变化。"
+                      />
                       <Tabs
                         activeKey={reviewTab}
                         onChange={setReviewTab}
@@ -1291,11 +1568,10 @@ export default function ScheduleManage() {
                             label: '草案课表',
                             children: (
                               <div ref={draftSectionRef}>
-                                {draftRows.length ? (
-                                  <Table size="small" rowKey="key" pagination={false} columns={timetableColumns} dataSource={draftRows} scroll={{ x: 900 }} />
-                                ) : (
-                                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前还没有草案课表，保存配置后即可开始排课。" />
-                                )}
+                                <Space direction="vertical" size={14} style={{ width: '100%' }}>
+                                  <Select placeholder="选择班级查看草案课表" value={reviewClassId} options={classOptions} onChange={handleReviewClassChange} />
+                                  {renderReviewTimetableBlock('草案课表', reviewClassLabel, draftRows, '当前还没有草案课表，保存配置后即可开始排课。')}
+                                </Space>
                               </div>
                             ),
                           },
@@ -1304,12 +1580,10 @@ export default function ScheduleManage() {
                             label: '正式课表对比',
                             children: (
                               <Space direction="vertical" size={14} style={{ width: '100%' }}>
-                                <Select allowClear placeholder="选择班级查看正式课表" value={previewClassId} options={classOptions} onChange={handlePreviewClass} />
-                                {previewRows.length ? (
-                                  <Table size="small" rowKey="key" pagination={false} columns={timetableColumns} dataSource={previewRows} scroll={{ x: 900 }} />
-                                ) : (
-                                  <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前班级还没有可展示的正式课表。" />
-                                )}
+                                <Select placeholder="选择班级查看正式课表和草案课表" value={reviewClassId} options={classOptions} onChange={handleReviewClassChange} />
+                                {renderReviewTimetableBlock('正式课表', reviewClassLabel, previewRows, '正式课表还没有发布。')}
+                                <Divider style={{ margin: '6px 0' }} />
+                                {renderReviewTimetableBlock('草案课表', reviewClassLabel, draftRows, '当前班级还没有草案课表。')}
                               </Space>
                             ),
                           },
@@ -1329,8 +1603,9 @@ export default function ScheduleManage() {
                         ]}
                       />
                       <Space wrap>
-                        <Button onClick={() => openConfigTab(!summaryCounts.plans ? 'plans' : 'arrangements')}>返回调整配置</Button>
+                        <Button onClick={() => openConfigTab(nextAction.tab === 'draft' ? 'periods' : nextAction.tab)}>返回调整配置</Button>
                         <Button icon={<RobotOutlined />} loading={solveLoading} onClick={handleSolve}>重新生成草案</Button>
+                        <Button icon={<DownloadOutlined />} loading={draftExportLoading} disabled={!currentDraftId} onClick={handleExportDraft}>导出课表</Button>
                         <Button type="primary" icon={<SendOutlined />} loading={publishLoading} disabled={!canPublishCurrentDraft} onClick={handlePublishDraft}>发布为正式课表</Button>
                       </Space>
                     </Space>

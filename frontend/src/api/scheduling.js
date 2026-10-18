@@ -5,6 +5,9 @@ export const getScheduleTeachers = () => request.get('/api/auth/teachers')
 export const getLessonPlan = (grade) => request.get(`/api/schedule/lesson-plan/${encodeURIComponent(grade)}`)
 export const saveLessonPlan = (data) => request.post('/api/schedule/lesson-plan', data)
 
+export const getPeriodPlan = (grade) => request.get(`/api/schedule/period-plan/${encodeURIComponent(grade)}`)
+export const savePeriodPlan = (data) => request.post('/api/schedule/period-plan', data)
+
 export const getTeachingArrangement = (grade) =>
   request.get(`/api/schedule/teaching-arrangement/${encodeURIComponent(grade)}`)
 export const saveTeachingArrangement = (data) => request.post('/api/schedule/teaching-arrangement', data)
@@ -26,6 +29,8 @@ export const getScheduleTask = (taskId) => request.get(`/api/schedule/tasks/${ta
 
 export const getScheduleDraft = (draftId) => request.get(`/api/schedule/drafts/${draftId}`)
 export const getScheduleDraftItems = (draftId) => request.get(`/api/schedule/drafts/${draftId}/items`)
+export const exportScheduleDraft = (draftId) =>
+  request.get(`/api/schedule/drafts/${draftId}/export`, { responseType: 'blob' })
 export const publishScheduleDraft = (draftId) => request.post(`/api/schedule/drafts/${draftId}/publish`)
 
 export const createScheduleImport = (formData) =>
@@ -34,6 +39,8 @@ export const createScheduleImport = (formData) =>
   })
 export const downloadScheduleImportTemplate = () =>
   request.get('/api/schedule/imports/template', { responseType: 'blob' })
+export const exportScheduleDebugConfig = (grade) =>
+  request.get(`/api/schedule/debug-config/${encodeURIComponent(grade)}/export`, { responseType: 'blob' })
 export const getScheduleImport = (importId) => request.get(`/api/schedule/imports/${importId}`)
 export const getScheduleImportItems = (importId) => request.get(`/api/schedule/imports/${importId}/items`)
 export const patchScheduleImportItem = (importId, itemId, data) => request.patch(`/api/schedule/imports/${importId}/items/${itemId}`, data)

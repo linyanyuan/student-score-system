@@ -15,6 +15,7 @@ from app.models.school import School
 from app.models.schedule_period import SchedulePeriod
 from app.models.subject import Subject
 from app.models.user import User
+from app.services.scheduling.config_loader import load_scheduling_raw_config
 
 
 class SchedulingConfigApiTests(unittest.TestCase):
@@ -89,6 +90,33 @@ class SchedulingConfigApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['items'][0]['teacher_id'], self.teacher.id)
 
+    def test_period_plan_limits_auto_schedule_slots_for_grade(self):
+        second_period = SchedulePeriod(
+            name='第2节',
+            start_time='08:55',
+            end_time='09:40',
+            school_id=self.school.id,
+            sort_order=2,
+            is_active=True,
+            include_in_auto_schedule=True,
+        )
+        self.db.add(second_period)
+        self.db.commit()
+        self.db.refresh(second_period)
+
+        response = self.client.post(
+            '/api/schedule/period-plan',
+            json={'grade': '八年级', 'period_ids': [self.period.id]},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['period_ids'], [self.period.id])
+
+        with self.SessionTesting() as db:
+            raw_config = load_scheduling_raw_config(db, self.school.id, '八年级')
+
+        self.assertEqual([item['id'] for item in raw_config['periods']], [self.period.id])
+        self.assertEqual(len(raw_config['slots']), 5)
 
     def test_save_lesson_plan_supports_legacy_not_null_columns(self):
         with self.engine.begin() as conn:
